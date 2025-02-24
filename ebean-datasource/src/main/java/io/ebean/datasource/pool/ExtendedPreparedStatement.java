@@ -14,6 +14,7 @@ import java.sql.Ref;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Calendar;
@@ -60,7 +61,15 @@ final class ExtendedPreparedStatement extends ExtendedStatement implements Prepa
    * reuse the PreparedStatement.
    */
   void closeDestroy() throws SQLException {
-    delegate.close();
+    if (!delegate.isClosed()) {
+      // Cancel might throw an exception when it is already closed
+      try {
+        delegate.cancel();
+      } catch (SQLFeatureNotSupportedException e) {
+        Log.trace("Canceling statement not supported by JDBC-driver");
+      }
+      delegate.close();
+    }
   }
 
   /**
