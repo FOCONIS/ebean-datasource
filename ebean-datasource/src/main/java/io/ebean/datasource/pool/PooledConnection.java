@@ -219,6 +219,9 @@ final class PooledConnection extends ConnectionDelegator {
       }
     }
     try {
+      if (!connection.getAutoCommit()) {
+        connection.rollback();
+      }
       connection.close();
       pool.dec();
     } catch (SQLException ex) {
