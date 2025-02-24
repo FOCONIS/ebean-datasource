@@ -108,7 +108,7 @@ final class BusyConnectionBuffer {
     try {
       Log.warn("DataSource closing busy connection? {0}", pc.fullDescription());
       System.out.println("CLOSING busy connection: " + pc.fullDescription());
-      pc.closeConnectionFully(false);
+      pc.closeConnectionFully(true);
     } catch (Exception ex) {
       Log.error("Error when closing potentially leaked connection " + pc.description(), ex);
     }
