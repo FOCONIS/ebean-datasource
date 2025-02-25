@@ -225,7 +225,10 @@ final class PooledConnectionQueue {
       // or SQLException but that is ok as its only an indicator
       hitCount++;
       // are other threads already waiting? (they get priority)
-      if (waitingThreads == 0) {
+      if (waitingThreads == 0
+        // If datasource is down, we might run into _obtainConnectionWaitLoop forever (or until no thread requests connections),
+        // in case threads were waiting when reset() occurs. Without this, it would be hard to recover/reconnect the pool.
+        || busyList.size() < maxSize) {
         PooledConnection freeConnection = extractFromFreeList();
         if (freeConnection != null) {
           return freeConnection;
