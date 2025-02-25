@@ -227,8 +227,8 @@ final class PooledConnectionQueue {
       // are other threads already waiting? (they get priority)
       if (waitingThreads == 0
         // If datasource is down, we might run into _obtainConnectionWaitLoop forever (or until no thread requests connections),
-        // in case all connections were busy on reset(). Without this, it would be hard to recover/reconnect the pool
-        || !pool.isDataSourceUp()) {
+        // in case threads were waiting when reset() occurs. Without this, it would be hard to recover/reconnect the pool.
+        || busyList.size() < maxSize) {
         PooledConnection freeConnection = extractFromFreeList();
         if (freeConnection != null) {
           return freeConnection;
