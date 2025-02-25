@@ -367,6 +367,7 @@ final class ConnectionPool implements DataSourcePool {
     } finally {
       try {
         if (conn != null) {
+          conn.rollback();
           conn.close();
         }
       } catch (SQLException ex) {
