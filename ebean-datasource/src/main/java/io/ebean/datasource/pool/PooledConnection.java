@@ -448,11 +448,6 @@ final class PooledConnection extends ConnectionDelegator {
     if (status == STATUS_IDLE) {
       throw new SQLException(IDLE_CONNECTION_ACCESSED_ERROR + "close()");
     }
-    boolean mayHaveUncommittedChanges = !autoCommit && !readOnly && status == STATUS_ACTIVE;
-    if (mayHaveUncommittedChanges && pool.failIfWithinTransaction()) {
-      pool.returnConnectionForceClose(this);
-      throw new SQLException("Tried to close active connection within transaction");
-    }
     if (hadErrors) {
       if (failoverToReadOnly) {
         pool.returnConnectionReset(this);
@@ -463,13 +458,11 @@ final class PooledConnection extends ConnectionDelegator {
         return;
       }
     }
+
     try {
       if (connection.isClosed()) {
         pool.removeClosedConnection(this);
         return;
-      }
-      if (mayHaveUncommittedChanges) {
-        pool.closeWithinTxn(this);
       }
       // reset the autoCommit back if client code changed it
       if (autoCommit != pool.isAutoCommit()) {

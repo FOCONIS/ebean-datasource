@@ -25,10 +25,6 @@ import static io.ebean.datasource.pool.TransactionIsolation.description;
  */
 final class ConnectionPool implements DataSourcePool {
 
-  enum CloseWithinTxn {
-    NOTHING, ROLLBACK, COMMIT, FAIL, REMOVE;
-  }
-
   private static final String APPLICATION_NAME = "ApplicationName";
   private final ReentrantLock heartbeatLock = new ReentrantLock(false);
   private final ReentrantLock notifyLock = new ReentrantLock(false);
@@ -59,7 +55,6 @@ final class ConnectionPool implements DataSourcePool {
   private final boolean failOnStart;
   private final int maxInactiveMillis;
   private final long validateStaleMillis;
-  private final CloseWithinTxn closeWithinTxn;
   /**
    * Max age a connection is allowed in millis.
    * A value of 0 means no limit (no trimming based on max age).
@@ -99,7 +94,6 @@ final class ConnectionPool implements DataSourcePool {
   private final boolean shutdownOnJvmExit;
   private Thread shutdownHook;
 
-
   ConnectionPool(String name, DataSourceConfig params) {
     this.config = params;
     this.name = name;
@@ -134,12 +128,10 @@ final class ConnectionPool implements DataSourcePool {
     this.user = params.getUsername();
     this.shutdownOnJvmExit = params.isShutdownOnJvmExit();
     this.source = DriverDataSource.of(name, params);
-    this.closeWithinTxn = Enum.valueOf(CloseWithinTxn.class, params.closeWithinTxn().toUpperCase(Locale.ROOT));
     if (!params.isOffline()) {
       init();
     }
     this.nextTrimTime = System.currentTimeMillis() + trimPoolFreqMillis;
-
   }
 
   private void init() {
@@ -521,37 +513,6 @@ final class ConnectionPool implements DataSourcePool {
     } catch (Exception e) {
       Log.warn("Validation test failed on connection:{0} message: {1}", conn.name(), e.getMessage());
       return true;
-    }
-  }
-
-  /**
-   * Fail hard in close() when there is uncommitted work. This is for debugging to find wrong code.
-   */
-  boolean failIfWithinTransaction() {
-    return closeWithinTxn == CloseWithinTxn.FAIL;
-  }
-
-  /**
-   * will be called, before the connection is returned to the pool. This happens, when there may
-   * be uncommitted changes and before all settings like autocommit/schema/catalog are reset to default.
-   * <p>
-   * If this method fails, the connection is silently removed from pool
-   */
-  void closeWithinTxn(PooledConnection pooledConnection) throws SQLException {
-    switch (closeWithinTxn) {
-      case NOTHING:
-        Log.trace("Closing active connection.");
-        break;
-      case ROLLBACK:
-        pooledConnection.rollback();
-        Log.trace("Closing active connection. Rollback performed.");
-        break;
-      case COMMIT:
-        pooledConnection.commit();
-        Log.trace("Closing active connection. Commit performed.");
-        break;
-      case REMOVE:
-        throw new SQLException("Closing active connection. Removing from pool.");
     }
   }
 
