@@ -65,12 +65,12 @@ final class FreeConnectionBuffer {
    * <p>
    * The connections are returned to close.
    */
-  List<PooledConnection> trim(int minSize, long usedSince, long createdSince) {
+  List<PooledConnection> trim(int minSize, long usedSince, long createdSince, boolean forced) {
     List<PooledConnection> trimmedConnections = null;
     ListIterator<PooledConnection> iterator = freeBuffer.listIterator(minSize);
     while (iterator.hasNext()) {
       PooledConnection pooledConnection = iterator.next();
-      if (pooledConnection.shouldTrim(usedSince, createdSince)) {
+      if (pooledConnection.shouldTrim(usedSince, createdSince, forced)) {
         iterator.remove();
         if (trimmedConnections == null) {
           trimmedConnections = new ArrayList<>();
