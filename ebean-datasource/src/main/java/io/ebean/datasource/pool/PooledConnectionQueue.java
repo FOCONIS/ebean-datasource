@@ -384,10 +384,10 @@ final class PooledConnectionQueue {
       if (freeList.size() > minSize) {
         // trim on maxInactive and maxAge
         long usedSince = System.currentTimeMillis() - maxInactiveMillis;
-        trimmed = freeList.trim(minSize, usedSince, createdSince);
+        trimmed = freeList.trim(minSize, usedSince, createdSince, false);
       } else if (createdSince > 0) {
         // trim only on maxAge
-        trimmed = freeList.trim(0, createdSince, createdSince);
+        trimmed = freeList.trim(0, createdSince, createdSince, false);
       } else {
         trimmed = null;
       }
@@ -404,6 +404,31 @@ final class PooledConnectionQueue {
       return freeList.size() < minSize;
     }
     return false;
+  }
+
+  int forceTrim(int trimCount) {
+    List<PooledConnection> trimmed = null;
+    lock.lock();
+    try {
+      int trimStart = freeList.size() - trimCount;
+      trimStart = Math.max(trimStart, 0);
+
+      if (freeList.size() > trimStart) {
+        trimmed = freeList.trim(trimStart, 0, 0, true);
+      }
+    } finally {
+      lock.unlock();
+    }
+    if (trimmed != null) {
+      if (Log.isLoggable(DEBUG)) {
+        Log.debug("DataSource [{0}] forced trimmed [{1}] connections. New size[{2}]", name, trimmed.size(), totalConnections());
+      }
+      for (PooledConnection pc : trimmed) {
+        pc.closeConnectionFully(true);
+      }
+      return trimmed.size();
+    }
+    return 0;
   }
 
   /**

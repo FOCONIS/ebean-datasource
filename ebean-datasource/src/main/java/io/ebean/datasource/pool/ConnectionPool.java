@@ -450,6 +450,11 @@ final class ConnectionPool implements DataSourcePool {
   }
 
   @Override
+  public int forceTrim(int trimCount) {
+    return queue.forceTrim(trimCount);
+  }
+
+  @Override
   public void setMaxSize(int max) {
     queue.setMaxSize(max);
     this.maxConnections = max;
