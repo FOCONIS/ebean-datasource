@@ -157,6 +157,8 @@ final class ConnectionPool implements DataSourcePool {
     pscRem.add(pstmtCache.removeCount());
   }
 
+
+
   final class HeartBeatRunnable extends TimerTask {
     @Override
     public void run() {
@@ -454,8 +456,7 @@ final class ConnectionPool implements DataSourcePool {
     if (poolListener != null) {
       poolListener.onAfterCreateConnection(connection);
     }
-
-    return initConnection(source.getConnection());
+    return connection;
   }
 
   @Override
@@ -576,6 +577,9 @@ final class ConnectionPool implements DataSourcePool {
       poolListener.onBeforeReturnConnection(pooledConnection);
     }
     queue.returnPooledConnection(pooledConnection, forceClose, true);
+    if (poolListener != null && !forceClose) {
+      poolListener.onAfterReturnConnection();
+    }
   }
 
   void returnConnectionReset(PooledConnection pooledConnection) {
@@ -584,6 +588,17 @@ final class ConnectionPool implements DataSourcePool {
     reset(false);
   }
 
+  void onBeforeCloseConnection(PooledConnection pooledConnection) {
+    if (poolListener != null) {
+      poolListener.onBeforeCloseConnection(pooledConnection);
+    }
+  }
+
+  void onAfterCloseConnection() {
+    if (poolListener != null) {
+      poolListener.onAfterCloseConnection();
+    }
+  }
   /**
    * Grow the pool by creating a new connection. The connection can either be
    * added to the available list, or returned.

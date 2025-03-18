@@ -242,6 +242,7 @@ final class PooledConnection extends ConnectionDelegator {
     }
     if (pool != null) {
       pool.pstmtCacheMetrics(pstmtCache);
+      pool.onBeforeCloseConnection(this);
     }
     try {
       if (connection.isClosed()) {
@@ -281,6 +282,7 @@ final class PooledConnection extends ConnectionDelegator {
     try {
       connection.close();
       pool.dec();
+      pool.onAfterCloseConnection();
     } catch (SQLException ex) {
       if (logErrors || Log.isLoggable(System.Logger.Level.DEBUG)) {
         Log.error("Error when fully closing connection [" + fullDescription() + "]", ex);

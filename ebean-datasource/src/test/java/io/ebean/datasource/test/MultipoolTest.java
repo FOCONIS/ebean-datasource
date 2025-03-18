@@ -12,9 +12,12 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 @Disabled("run manually")
 class MultipoolTest {
@@ -43,6 +46,26 @@ class MultipoolTest {
 	}
 
 	static class PoolManager implements DataSourcePoolListener {
+		List<DataSourcePool> pools = new ArrayList<>();
+		Semaphore semaphore = new Semaphore(120);
+		Random random = new Random();
+
+		@Override
+		public void onBeforeCreateConnection() {
+			try {
+				while (!semaphore.tryAcquire(50, TimeUnit.MILLISECONDS)) {
+					System.out.println("trim required");
+					pools.get(random.nextInt(pools.size())).forceTrim(25);
+				}
+			} catch (InterruptedException e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		public void onAfterCloseConnection() {
+			semaphore.release();
+		}
+
 
 	}
 
@@ -56,6 +79,7 @@ class MultipoolTest {
 
 		try {
 			consumeConnections(pool1, 100);
+			//pool1.forceTrim(70);
 			consumeConnections(pool2, 100);
 		} finally {
 			pool1.shutdown();
@@ -84,7 +108,7 @@ class MultipoolTest {
 	}
 
 	private static DataSourcePool getPool() {
-		return DataSourceBuilder.create()
+		DataSourcePool pool = DataSourceBuilder.create()
 				.url(container.jdbcUrl())
 				.username("unit")
 				.password("unit")
@@ -93,5 +117,7 @@ class MultipoolTest {
 				.maxConnections(100)
 				.listener(poolManager)
 				.build();
+		poolManager.pools.add(pool);
+		return pool;
 	}
 }

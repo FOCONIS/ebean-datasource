@@ -44,4 +44,7 @@ public interface DataSourcePoolListener {
    */
   default void onAfterReturnConnection() {}
 
+  default void onBeforeCloseConnection(Connection connection) {}
+
+  default void onAfterCloseConnection() {}
 }
