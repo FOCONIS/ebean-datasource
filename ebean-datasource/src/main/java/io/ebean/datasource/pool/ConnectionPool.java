@@ -446,6 +446,15 @@ final class ConnectionPool implements DataSourcePool {
   }
 
   private Connection createConnection() throws SQLException {
+
+    if (poolListener != null) {
+      poolListener.onBeforeCreateConnection();
+    }
+    Connection connection = initConnection(source.getConnection());
+    if (poolListener != null) {
+      poolListener.onAfterCreateConnection(connection);
+    }
+
     return initConnection(source.getConnection());
   }
 
@@ -613,7 +622,14 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public Connection getConnection(String username, String password) throws SQLException {
-    return initConnection(source.getConnection(username, password));
+    if (poolListener != null) {
+      poolListener.onBeforeCreateConnection();
+    }
+    Connection connection = initConnection(source.getConnection(username, password));
+    if (poolListener != null) {
+      poolListener.onAfterCreateConnection(connection);
+    }
+    return connection;
   }
 
   /**
@@ -631,6 +647,9 @@ final class ConnectionPool implements DataSourcePool {
    * will go into a wait if the pool has hit its maximum size.
    */
   private PooledConnection getPooledConnection() throws SQLException {
+    if (poolListener != null) {
+      poolListener.onBeforeBorrowConnection();
+    }
     PooledConnection c = queue.obtainConnection();
     if (captureStackTrace) {
       c.setStackTrace(Thread.currentThread().getStackTrace());

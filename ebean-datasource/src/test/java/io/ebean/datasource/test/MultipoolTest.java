@@ -1,32 +1,20 @@
 package io.ebean.datasource.test;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
-import com.ibm.db2.jcc.DB2Connection;
-import io.avaje.applog.AppLog;
 import io.ebean.datasource.DataSourceBuilder;
 import io.ebean.datasource.DataSourcePool;
 import io.ebean.datasource.DataSourcePoolListener;
-import io.ebean.test.containers.Db2Container;
 import io.ebean.test.containers.MariaDBContainer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @Disabled("run manually")
 class MultipoolTest {
@@ -53,6 +41,12 @@ class MultipoolTest {
 	static void after() {
 		executor.shutdownNow();
 	}
+
+	static class PoolManager implements DataSourcePoolListener {
+
+	}
+
+	private static PoolManager poolManager = new PoolManager();
 
 	@Test
 	void testFalseFriendRollback() throws Exception {
@@ -97,6 +91,7 @@ class MultipoolTest {
 				.ownerUsername("unit")
 				.ownerPassword("unit")
 				.maxConnections(100)
+				.listener(poolManager)
 				.build();
 	}
 }
