@@ -5,15 +5,16 @@
     </encoder>
   </appender>
 
-  <root level="INF0">
+  <root level="INFO">
     <appender-ref ref="STDOUT"/>
   </root>
 
-  <logger name="java.lang" level="WARN"/>
-  <logger name="io.ebean" level="INFO"/>
-  <logger name="io.avaje.config" level="TRACE"/>
-  <logger name="io.ebean.docker" level="DEBUG"/>
-  <logger name="io.ebean.test" level="TRACE"/>
-  <logger name="io.ebean.datasource" level="TRACE"/>
+  <logger name="org.mariadb" level="ERROR"/>
+<!--  <logger name="java.lang" level="WARN"/>-->
+<!--  <logger name="io.ebean" level="INFO"/>-->
+<!--  <logger name="io.avaje.config" level="TRACE"/>-->
+<!--  <logger name="io.ebean.docker" level="DEBUG"/>-->
+<!--  <logger name="io.ebean.test" level="TRACE"/>-->
+<!--  <logger name="io.ebean.datasource" level="TRACE"/>-->
 
 </configuration>

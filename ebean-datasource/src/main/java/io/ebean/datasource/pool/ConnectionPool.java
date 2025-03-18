@@ -157,6 +157,8 @@ final class ConnectionPool implements DataSourcePool {
     pscRem.add(pstmtCache.removeCount());
   }
 
+
+
   final class HeartBeatRunnable extends TimerTask {
     @Override
     public void run() {
@@ -446,7 +448,20 @@ final class ConnectionPool implements DataSourcePool {
   }
 
   private Connection createConnection() throws SQLException {
-    return initConnection(source.getConnection());
+
+    if (poolListener != null) {
+      poolListener.onBeforeCreateConnection();
+    }
+    Connection connection = initConnection(source.getConnection());
+    if (poolListener != null) {
+      poolListener.onAfterCreateConnection(connection);
+    }
+    return connection;
+  }
+
+  @Override
+  public int forceTrim(int trimCount) {
+    return queue.forceTrim(trimCount);
   }
 
   @Override
@@ -562,6 +577,9 @@ final class ConnectionPool implements DataSourcePool {
       poolListener.onBeforeReturnConnection(pooledConnection);
     }
     queue.returnPooledConnection(pooledConnection, forceClose, true);
+    if (poolListener != null && !forceClose) {
+      poolListener.onAfterReturnConnection();
+    }
   }
 
   void returnConnectionReset(PooledConnection pooledConnection) {
@@ -570,6 +588,17 @@ final class ConnectionPool implements DataSourcePool {
     reset(false);
   }
 
+  void onBeforeCloseConnection(PooledConnection pooledConnection) {
+    if (poolListener != null) {
+      poolListener.onBeforeCloseConnection(pooledConnection);
+    }
+  }
+
+  void onAfterCloseConnection() {
+    if (poolListener != null) {
+      poolListener.onAfterCloseConnection();
+    }
+  }
   /**
    * Grow the pool by creating a new connection. The connection can either be
    * added to the available list, or returned.
@@ -608,7 +637,14 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public Connection getConnection(String username, String password) throws SQLException {
-    return initConnection(source.getConnection(username, password));
+    if (poolListener != null) {
+      poolListener.onBeforeCreateConnection();
+    }
+    Connection connection = initConnection(source.getConnection(username, password));
+    if (poolListener != null) {
+      poolListener.onAfterCreateConnection(connection);
+    }
+    return connection;
   }
 
   /**
@@ -626,6 +662,9 @@ final class ConnectionPool implements DataSourcePool {
    * will go into a wait if the pool has hit its maximum size.
    */
   private PooledConnection getPooledConnection() throws SQLException {
+    if (poolListener != null) {
+      poolListener.onBeforeBorrowConnection();
+    }
     PooledConnection c = queue.obtainConnection();
     if (captureStackTrace) {
       c.setStackTrace(Thread.currentThread().getStackTrace());

@@ -15,6 +15,21 @@ import java.sql.Connection;
 public interface DataSourcePoolListener {
 
   /**
+   * Called before a connection has been created
+   */
+  default void onBeforeCreateConnection() {}
+
+  /**
+   * Called after a connection has been created
+   */
+  default void onAfterCreateConnection(Connection connection) {}
+
+  /**
+   * Called before a connection has been retrieved from the connection pool
+   */
+  default void onBeforeBorrowConnection() {}
+
+  /**
    * Called after a connection has been retrieved from the connection pool
    */
   default void onAfterBorrowConnection(Connection connection) {}
@@ -24,5 +39,12 @@ public interface DataSourcePoolListener {
    */
   default void onBeforeReturnConnection(Connection connection) {}
 
+  /**
+   * Called after a connection will be put back to the connection pool
+   */
+  default void onAfterReturnConnection() {}
 
+  default void onBeforeCloseConnection(Connection connection) {}
+
+  default void onAfterCloseConnection() {}
 }
