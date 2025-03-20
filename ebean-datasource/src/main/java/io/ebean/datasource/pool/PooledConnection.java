@@ -1003,4 +1003,13 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
     return filteredList.toString();
   }
 
+  @Override
+  public void clearPreparedStatementCache() {
+    lock.lock();
+    try {
+      pstmtCache.clear();
+    } finally {
+      lock.unlock();
+    }
+  }
 }
