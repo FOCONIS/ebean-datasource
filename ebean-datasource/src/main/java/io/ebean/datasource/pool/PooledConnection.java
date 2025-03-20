@@ -1,7 +1,6 @@
 package io.ebean.datasource.pool;
 
 import io.ebean.datasource.DataSourceConnection;
-import io.ebean.datasource.DataSourcePool;
 
 import java.sql.CallableStatement;
 import java.sql.Connection;
@@ -1005,4 +1004,13 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
     return filteredList.toString();
   }
 
+  @Override
+  public void clearPreparedStatementCache() {
+    lock.lock();
+    try {
+      pstmtCache.clear();
+    } finally {
+      lock.unlock();
+    }
+  }
 }
