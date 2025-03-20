@@ -281,7 +281,7 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public boolean isWrapperFor(Class<?> arg0) {
-    return false;
+    return DataSourcePool.class.isAssignableFrom(arg0);
   }
 
   /**
@@ -289,7 +289,10 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public <T> T unwrap(Class<T> arg0) throws SQLException {
-    throw new SQLException("Not Implemented");
+    if (DataSourcePool.class.isAssignableFrom(arg0)) {
+      return (T) this;
+    }
+    throw new SQLException("Not a wrapper for " + arg0.getName());
   }
 
   /**
@@ -628,7 +631,7 @@ final class ConnectionPool implements DataSourcePool {
    */
   private void returnTheConnection(PooledConnection pooledConnection, boolean forceClose) {
     if (poolListener != null && !forceClose && pooledConnection.affinityId() != ConnectionBuffer.HEARTBEAT) {
-      poolListener.onBeforeReturnConnection(pooledConnection);
+      poolListener.onBeforeReturnConnection(this, pooledConnection);
     }
     queue.returnPooledConnection(pooledConnection, forceClose);
   }
@@ -712,7 +715,7 @@ final class ConnectionPool implements DataSourcePool {
       c.setStackTrace(Thread.currentThread().getStackTrace());
     }
     if (poolListener != null) {
-      poolListener.onAfterBorrowConnection(c);
+      poolListener.onAfterBorrowConnection(this, c);
     }
     return c;
   }

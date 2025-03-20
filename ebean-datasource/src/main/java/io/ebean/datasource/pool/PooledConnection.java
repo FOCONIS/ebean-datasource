@@ -282,13 +282,7 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
           Log.error("Error checking if connection [" + name + "] is closed", ex);
         }
       }
-      try {
-        clearPreparedStatementCache();
-      } catch (SQLException ex) {
-        if (logErrors) {
-          Log.warn("Error when closing connection Statements", ex);
-        }
-      }
+      clearPreparedStatementCache();
       try {
         // DB2 (and some other DBMS) may have uncommitted changes and do not allow close
         // so try to do a rollback.
@@ -315,14 +309,18 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
     }
   }
 
-  void clearPreparedStatementCache() throws SQLException {
+  public void clearPreparedStatementCache() {
     lock.lock();
     try {
       for (ExtendedPreparedStatement ps : pstmtCache.values()) {
-        ps.closeDestroy();
+        try {
+          ps.closeDestroy();
+        } catch (SQLException ex) {
+          Log.warn("Error when closing connection Statements", ex);
+        }
       }
-
     } finally {
+      pstmtCache.clear();
       lock.unlock();
     }
   }
