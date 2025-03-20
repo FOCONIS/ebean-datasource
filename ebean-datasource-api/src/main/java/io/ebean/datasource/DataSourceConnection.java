@@ -14,4 +14,8 @@ public interface DataSourceConnection extends Connection {
    */
   Object affinityId();
 
+  /**
+   * Clears the prepared statement cache.
+   */
+  void clearPreparedStatementCache();
 }
