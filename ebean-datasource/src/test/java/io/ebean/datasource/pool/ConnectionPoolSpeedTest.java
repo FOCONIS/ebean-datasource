@@ -7,7 +7,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
@@ -36,6 +39,7 @@ public class ConnectionPoolSpeedTest {
     config.setMinConnections(2);
     config.setMaxConnections(100);
     config.setAutoCommit(true);
+    config.affinityProvider(Thread::currentThread);
 
     return new ConnectionPool("testspeed", config);
   }
@@ -62,6 +66,47 @@ public class ConnectionPoolSpeedTest {
     logger.info("avgNanos[{}] total[{}]", avgNanos, total);
 
     assertThat(avgNanos).isLessThan(300);
+  }
+
+  @Test
+  public void testMultiThread() throws Exception {
+    warm();
+
+    total = 0;
+    List<Thread> threads = new ArrayList<>();
+    for (int threadCount = 0; threadCount < 100; threadCount++) {
+      threads.add(createThread());
+    }
+
+    long startNano = System.nanoTime();
+    for (Thread thread : threads) {
+      thread.start();
+    }
+    for (Thread thread : threads) {
+      thread.join();
+    }
+    long exeNanos = System.nanoTime() - startNano;
+
+    logger.info("exeNanos[{}]", exeNanos);
+  }
+
+  private Thread createThread() {
+    return new Thread(() -> {
+      try {
+        for (int j = 0; j < 500; j++) {
+          for (int k = 0; k < 20; k++) {
+            try (Connection conn = pool.getConnection()) {
+              try (PreparedStatement stmt = conn.prepareStatement("select '" + Thread.currentThread().getName() + "', " + k)) {
+                stmt.execute();
+              }
+              conn.rollback();
+            }
+          }
+        }
+      } catch (SQLException e) {
+        e.printStackTrace();
+      }
+    });
   }
 
   private void perform() throws SQLException {
