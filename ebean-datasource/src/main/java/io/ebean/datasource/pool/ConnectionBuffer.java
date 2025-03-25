@@ -4,54 +4,57 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A buffer designed especially to hold free pooled connections.
+ * A buffer designed especially to hold pooled connections (free and busy ones)
  * <p>
  * All thread safety controlled externally (by PooledConnectionQueue).
  * </p>
  */
-final class FreeConnectionBuffer {
+final class ConnectionBuffer {
 
 
   private final Node free = new Node(null);
 
-  FreeConnectionBuffer() {
+  ConnectionBuffer() {
     Node end = new Node(null);
     free.next = end;
     end.prev = free;
   }
 
-  int size = 0;
+  int freeSize = 0;
 
   /**
    * Return the number of entries in the buffer.
    */
-  int size() {
-    return size;
+  int freeSize() {
+    return freeSize;
   }
 
   /**
    * Return true if the buffer is empty.
    */
-  boolean isEmpty() {
-    return size == 0;
+  boolean hasFreeConnections() {
+    return freeSize > 0;
   }
 
   /**
    * Add connection to the free list.
    */
-  void add(PooledConnection pc) {
+  void addFree(PooledConnection pc) {
     free.add(new Node(pc));
-    size++;
+    freeSize++;
   }
 
   /**
-   * Remove a connection from the free list.
+   * Remove a connection from the free list. Returns <code>null</code> if there is not any.
    */
-  PooledConnection remove() {
+  Node popFree () {
     Node node = free.next;
+    if (node.isEgeNode()) {
+      return null;
+    }
     node.remove();
-    size--;
-    return node.pc;
+    freeSize--;
+    return node;
   }
 
   /**
@@ -59,8 +62,10 @@ final class FreeConnectionBuffer {
    */
   void closeAll(boolean logErrors) {
     List<PooledConnection> tempList = new ArrayList<>();
-    while (size > 0) {
-      tempList.add(remove());
+    Node node = popFree();
+    while (node != null) {
+      tempList.add(node.pc);
+      node = popFree();
     }
 
     if (Log.isLoggable(System.Logger.Level.TRACE)) {
@@ -88,7 +93,7 @@ final class FreeConnectionBuffer {
 
       if (trimFrom.pc.shouldTrim(usedSince, createdSince)) {
         trimFrom.remove();
-        size--;
+        freeSize--;
         trimFrom.pc.closeConnectionFully(true);
         trimCount++;
       }
