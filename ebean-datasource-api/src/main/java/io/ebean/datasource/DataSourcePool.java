@@ -36,7 +36,6 @@ public interface DataSourcePool extends DataSource {
    *   Connection connection = pool.getConnection();
    *
    * }</pre>
-   *
    */
   static DataSourceBuilder builder() {
     return new DataSourceConfig();
@@ -80,6 +79,12 @@ public interface DataSourcePool extends DataSource {
    * Take the DataSource offline closing all connections and stopping heart beat checking.
    */
   void offline();
+
+  /**
+   * Returns a connection for given affinity ID. It is guaranteed, that connection.affinityId in listener etc.
+   * is the same object.
+   */
+  DataSourceConnection getConnection(Object affinityId) throws SQLException;
 
   /**
    * Shutdown the pool.
