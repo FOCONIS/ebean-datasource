@@ -21,14 +21,9 @@ final class PooledConnectionQueue {
   private final String name;
   private final ConnectionPool pool;
   /**
-   * A 'circular' buffer designed specifically for free connections.
+   * A buffer designed specifically for free and busy connections.
    */
   private final ConnectionBuffer buffer;
-  /**
-   * A 'slots' buffer designed specifically for busy connections.
-   * Fast add remove based on slot id.
-   */
-  private final BusyConnectionBuffer busyList;
   /**
    * Main lock guarding all access
    */
@@ -89,7 +84,7 @@ final class PooledConnectionQueue {
     this.waitTimeoutMillis = pool.waitTimeoutMillis();
     this.maxAgeMillis = pool.maxAgeMillis();
     this.validateStaleMillis = pool.validateStaleMillis();
-    this.busyList = new BusyConnectionBuffer(maxSize, 20);
+    //this.busyList = new BusyConnectionBuffer(maxSize, 20);
     this.buffer = new ConnectionBuffer();
     this.lock = new ReentrantLock(false);
     this.notEmpty = lock.newCondition();
@@ -98,7 +93,7 @@ final class PooledConnectionQueue {
   }
 
   private PoolStatus createStatus() {
-    return new Status(minSize, maxSize, buffer.freeSize(), busyList.size(), waitingThreads, highWaterMark,
+    return new Status(minSize, maxSize, buffer.freeSize(), buffer.busySize(), waitingThreads, highWaterMark,
       waitCount, hitCount, totalAcquireNanos, maxAcquireNanos, totalWaitNanos);
   }
 
@@ -138,7 +133,7 @@ final class PooledConnectionQueue {
       var collectedHitCount = delta ? hitCount - lastHitCount : hitCount;
       var collectedTotalAcquireNanos = delta ? totalAcquireNanos - lastTotalAcquireNanos : totalAcquireNanos;
       var collectedTotalWaitNanos = delta ? totalWaitNanos - lastTotalWaitNanos : totalWaitNanos;
-      var status = new Status(minSize, maxSize, buffer.freeSize(), busyList.size(), waitingThreads, publishedHighWaterMark,
+      var status = new Status(minSize, maxSize, buffer.freeSize(), buffer.busySize(), waitingThreads, publishedHighWaterMark,
         collectedWaitCount, collectedHitCount, collectedTotalAcquireNanos, publishedMaxAcquireNanos, collectedTotalWaitNanos);
       if (delta) {
         lastWaitCount = waitCount;
@@ -153,7 +148,7 @@ final class PooledConnectionQueue {
   }
 
   private void resetMetrics(long now) {
-    highWaterMark = busyList.size();
+    highWaterMark = buffer.busySize();
     hitCount = 0;
     waitCount = 0;
     maxAcquireNanos = 0;
@@ -169,7 +164,7 @@ final class PooledConnectionQueue {
   }
 
   private void resetMaxMetrics(long now) {
-    highWaterMark = busyList.size();
+    highWaterMark = buffer.busySize();
     maxAcquireNanos = 0;
     lastMaxResetNanos = now;
   }
@@ -180,7 +175,6 @@ final class PooledConnectionQueue {
       if (maxSize < this.minSize) {
         throw new IllegalArgumentException("maxSize " + maxSize + " < minSize " + this.minSize);
       }
-      this.busyList.setCapacity(maxSize);
       this.maxSize = maxSize;
     } finally {
       lock.unlock();
@@ -188,7 +182,7 @@ final class PooledConnectionQueue {
   }
 
   private int totalConnections() {
-    return buffer.freeSize() + busyList.size();
+    return buffer.freeSize() + buffer.busySize();
   }
 
   void createConnections(int numberToAdd) throws SQLException {
@@ -209,13 +203,15 @@ final class PooledConnectionQueue {
   void returnPooledConnection(PooledConnection c, boolean forceClose) {
     lock.lock();
     try {
-      if (!busyList.remove(c)) {
-        Log.warn("Connection [{0}] not found in BusyList?", c);
-      }
       if (forceClose || c.shouldTrimOnReturn(lastResetTime, maxAgeMillis)) {
+        if (!buffer.removeBusy(c)) {
+          Log.error("Connection [{0}] not found in BusyList?", c);
+        }
         c.closeConnectionFully(false);
       } else {
-        buffer.addFree(c);
+        if (!buffer.moveToFreeList(c)) {
+          Log.error("Connection [{0}] not found in BusyList?", c);
+        }
         notEmpty.signal();
       }
     } finally {
@@ -268,7 +264,7 @@ final class PooledConnectionQueue {
    * Register the PooledConnection with the busyList.
    */
   private int registerBusyConnection(PooledConnection connection) {
-    int busySize = busyList.add(connection);
+    int busySize = buffer.addBusy(connection);
     if (busySize > highWaterMark) {
       highWaterMark = busySize;
     }
@@ -378,7 +374,7 @@ final class PooledConnectionQueue {
         }
         String msg = "Unsuccessfully waited [" + waitTimeoutMillis + "] millis for a connection to be returned."
           + " No connections are free. You need to Increase the max connections of [" + maxSize + "]"
-          + " or look for a connection pool leak using datasource.xxx.capturestacktrace=true";
+          + " or look for a connection pool leak using datasource.xxx.captureStackTrace=true";
         if (pool.captureStackTrace()) {
           dumpBusyConnectionInformation();
         }
@@ -412,8 +408,8 @@ final class PooledConnectionQueue {
         // connections close on return to pool
         lastResetTime = System.currentTimeMillis() - 100;
       } else {
-        if (!busyList.isEmpty()) {
-          Log.warn("Closing busy connections on shutdown size: {0}", busyList.size());
+        if (buffer.busySize() > 0) {
+          Log.warn("Closing busy connections on shutdown size: {0}", buffer.busySize());
           dumpBusyConnectionInformation();
           closeBusyConnections(0);
         }
@@ -500,7 +496,7 @@ final class PooledConnectionQueue {
           } else {
             buffer.addFree(connection);
             if (Log.isLoggable(DEBUG)) {
-              Log.debug("DataSource [{0}] grow reserve; id[{1}] free[{2}] busy[{3}] max[{4}]", name, connection.name(), buffer.freeSize(), busyList.size(), maxSize);
+              Log.debug("DataSource [{0}] grow reserve; id[{1}] free[{2}] busy[{3}] max[{4}]", name, connection.name(), buffer.freeSize(), buffer.busySize(), maxSize);
             }
             notEmpty.signal();
           }
@@ -535,7 +531,7 @@ final class PooledConnectionQueue {
     }
     if (!trimmedConnections.isEmpty() && Log.isLoggable(DEBUG)) {
       Log.debug("DataSource [{0}] trim [{1}] inactive connections. free[{2}] busy[{3}]",
-        name, trimmedConnections.size(), buffer.freeSize(), busyList.size());
+        name, trimmedConnections.size(), buffer.freeSize(), buffer.busySize());
     }
     return trimmedConnections;
   }
@@ -565,7 +561,7 @@ final class PooledConnectionQueue {
   void closeBusyConnections(long leakTimeMinutes) {
     lock.lock();
     try {
-      busyList.closeBusyConnections(leakTimeMinutes);
+      buffer.closeBusyConnections(leakTimeMinutes);
     } finally {
       lock.unlock();
     }
@@ -585,7 +581,7 @@ final class PooledConnectionQueue {
   private String getBusyConnectionInformation(boolean toLogger) {
     lock.lock();
     try {
-      return busyList.busyConnectionInformation(toLogger);
+      return buffer.busyConnectionInformation(toLogger);
     } finally {
       lock.unlock();
     }
