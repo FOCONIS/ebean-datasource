@@ -535,9 +535,9 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
       status = STATUS_IDLE;
       pool.returnConnection(this);
 
-    } catch (Exception ex) {
+    } catch (Throwable t) {
       // the connection is BAD, remove it, close it and test the pool
-      Log.warn("Error when trying to return connection to pool, closing fully.", ex);
+      Log.warn("Error when trying to return connection to pool, closing fully.", t);
       pool.returnConnectionForceClose(this, testPool);
     }
   }

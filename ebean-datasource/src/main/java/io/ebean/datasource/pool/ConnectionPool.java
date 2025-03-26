@@ -359,8 +359,8 @@ final class ConnectionPool implements DataSourcePool {
       try {
         queue.trim(maxInactiveMillis, maxAgeMillis);
         nextTrimTime = System.currentTimeMillis() + trimPoolFreqMillis;
-      } catch (Exception e) {
-        Log.error("Error trying to trim idle connections - message:" + e.getMessage(), e);
+      } catch (Throwable t) {
+        Log.error("Error trying to trim idle connections - message:" + t.getMessage(), t);
       }
     }
   }
@@ -372,9 +372,13 @@ final class ConnectionPool implements DataSourcePool {
    * run periodically (every heartbeatFreqSecs seconds).
    */
   private void heartBeat() {
-    trimIdleConnections();
-    if (validateOnHeartbeat) {
-      testConnection();
+    try {
+      trimIdleConnections();
+      if (validateOnHeartbeat) {
+        testConnection();
+      }
+    } catch (Throwable t) {
+      Log.error("Error in heartbeat!", t);
     }
   }
 
@@ -525,8 +529,8 @@ final class ConnectionPool implements DataSourcePool {
   boolean invalidConnection(PooledConnection conn) {
     try {
       return !testConnection(conn);
-    } catch (Exception e) {
-      Log.warn("Validation test failed on connection:{0} message: {1}", conn.name(), e.getMessage());
+    } catch (Throwable t) {
+      Log.warn("Validation test failed on connection:{0} message: {1}", conn.name(), t.getMessage());
       return true;
     }
   }
@@ -653,7 +657,13 @@ final class ConnectionPool implements DataSourcePool {
       c.setStackTrace(Thread.currentThread().getStackTrace());
     }
     if (poolListener != null) {
-      poolListener.onAfterBorrowConnection(this, c);
+      try {
+        poolListener.onAfterBorrowConnection(this, c);
+      } catch (Throwable t) {
+        // in case of an error in listener, we must return the connection to the queue and close it.
+        queue.returnPooledConnection(c, true);
+        throw t;
+      }
     }
     return c;
   }
