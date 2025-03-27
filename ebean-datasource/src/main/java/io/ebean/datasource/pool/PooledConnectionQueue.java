@@ -291,6 +291,12 @@ final class PooledConnectionQueue {
         if (connection != null) {
           return connection;
         }
+        if (affinitiyId != null) {
+          connection = extractFromFreeList(ConnectionBuffer.POP_LAST);
+          if (connection != null) {
+            return connection;
+          }
+        }
       }
       try {
         // The pool is at maximum size. We are going to go into
@@ -299,7 +305,7 @@ final class PooledConnectionQueue {
           waitCount++;
         }
         waitingThreads++;
-        return _obtainConnectionWaitLoop(affinitiyId);
+        return _obtainConnectionWaitLoop(null);
       } finally {
         waitingThreads--;
         if (affinitiyId != ConnectionBuffer.HEARTBEAT) {
