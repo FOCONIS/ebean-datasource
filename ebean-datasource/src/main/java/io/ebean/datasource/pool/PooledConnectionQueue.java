@@ -200,19 +200,23 @@ final class PooledConnectionQueue {
    * Return a PooledConnection.
    */
   void returnPooledConnection(PooledConnection c, boolean forceClose) {
+    boolean closeConnection = false;
     lock.lock();
     try {
       if (!buffer.removeBusy(c)) {
-        Log.error("Connection [{0}] not found in BusyList?", c);
+        Log.warn("Connection [{0}] not found in BusyList?", c);
       }
       if (forceClose || c.shouldTrimOnReturn(lastResetTime, maxAgeMillis)) {
-        c.closeConnectionFully(false);
+        closeConnection = true;
       } else {
         buffer.addFree(c);
         notEmpty.signal();
       }
     } finally {
       lock.unlock();
+    }
+    if (closeConnection) {
+      c.closeConnectionFully(false);
     }
   }
 
@@ -546,11 +550,19 @@ final class PooledConnectionQueue {
    * Close all the connections that are in the free list.
    */
   private void closeFreeConnections(boolean logErrors) {
+    List<PooledConnection> tempList;
     lock.lock();
     try {
-      buffer.closeAllFree(logErrors);
+      tempList = buffer.clearFreeList();
     } finally {
       lock.unlock();
+    }
+    // closing the connections is done outside lock
+    if (Log.isLoggable(System.Logger.Level.TRACE)) {
+      Log.trace("... closing all {0} connections from the free list with logErrors: {1}", tempList.size(), logErrors);
+    }
+    for (PooledConnection connection : tempList) {
+      connection.closeConnectionFully(logErrors);
     }
   }
 
@@ -565,11 +577,20 @@ final class PooledConnectionQueue {
    * closed and put back into the pool.
    */
   void closeBusyConnections(long leakTimeMinutes) {
+    List<PooledConnection> tempList;
     lock.lock();
     try {
-      buffer.closeBusyConnections(leakTimeMinutes);
+      tempList = buffer.cleanupBusyList(leakTimeMinutes);
     } finally {
       lock.unlock();
+    }
+    for (PooledConnection pc : tempList) {
+      try {
+        Log.warn("DataSource closing busy connection? {0}", pc.fullDescription());
+        pc.closeConnectionFully(false);
+      } catch (Exception ex) {
+        Log.error("Error when closing potentially leaked connection " + pc.description(), ex);
+      }
     }
   }
 

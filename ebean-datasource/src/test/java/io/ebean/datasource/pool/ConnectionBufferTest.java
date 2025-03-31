@@ -171,8 +171,8 @@ class ConnectionBufferTest {
     b.addBusy(active);
     assertEquals(2, b.busySize());
 
-    // close connections considered leaked using a 1 minute leak time
-    b.closeBusyConnections(1);
+    // extract connections considered leaked using a 1 minute leak time
+    assertEquals(java.util.List.of(leaked), b.cleanupBusyList(1));
 
     // the leaked connection is removed, the active connection is retained
     assertEquals(1, b.busySize());
