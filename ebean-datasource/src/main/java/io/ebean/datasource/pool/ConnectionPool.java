@@ -704,7 +704,6 @@ final class ConnectionPool implements DataSourcePool {
    */
   private PooledConnection getPooledConnection(Object affinitiyId) throws SQLException {
     PooledConnection c = queue.obtainConnection(affinitiyId);
-    c.setAffinityId(affinitiyId);
     if (affinitiyId == ConnectionBuffer.HEARTBEAT) {
       // not application use so skip poolListener etc
       return c;
