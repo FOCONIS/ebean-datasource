@@ -458,6 +458,9 @@ final class ConnectionPool implements DataSourcePool {
         }
       }
     }
+    if (poolListener != null) {
+      conn = poolListener.initConnection(this, conn);
+    }
     return conn;
   }
 
