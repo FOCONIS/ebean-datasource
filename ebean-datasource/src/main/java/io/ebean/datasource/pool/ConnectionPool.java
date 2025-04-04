@@ -501,6 +501,9 @@ final class ConnectionPool implements DataSourcePool {
     if (connectionInitializer != null) {
       connectionInitializer.postInitialize(conn);
     }
+    if (poolListener != null) {
+      conn = poolListener.initConnection(this, conn);
+  }
     return conn;
   }
 
