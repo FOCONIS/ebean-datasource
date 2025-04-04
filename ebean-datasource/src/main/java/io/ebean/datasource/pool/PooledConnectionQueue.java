@@ -315,11 +315,12 @@ final class PooledConnectionQueue {
   }
 
   PoolStatus shutdown(boolean closeBusyConnections) {
+
     lock.lock();
     try {
       doingShutdown = true;
       PoolStatus status = createStatus();
-      closeFreeConnections(true);
+      doCloseFreeConnections(buffer.clearFreeList(), true);
 
       if (!closeBusyConnections) {
         // connections close on return to pool
@@ -328,7 +329,7 @@ final class PooledConnectionQueue {
         if (buffer.busySize() > 0) {
           Log.warn("Closing busy connections on shutdown size: {0}", buffer.busySize());
           dumpBusyConnectionInformation();
-          closeBusyConnections(0);
+          doCloseBusyConnections(buffer.cleanupBusyList(0), true);
         }
       }
       return status;
@@ -344,23 +345,27 @@ final class PooledConnectionQueue {
    * <p>
    * This is typically done when a database down event occurs.
    */
-  void reset(long leakTimeMinutes) {
+  void reset(long leakTimeMinutes, boolean logErrors) {
+    List<PooledConnection> busyConnections;
+    List<PooledConnection> freeConnections;
     lock.lock();
     try {
       PoolStatus status = createStatus();
       Log.info("Resetting DataSource [{0}] {1}", name, status);
       lastResetTime = System.currentTimeMillis();
 
-      closeFreeConnections(false);
-      closeBusyConnections(leakTimeMinutes);
-
-      String busyInfo = getBusyConnectionInformation();
-      if (!busyInfo.isEmpty()) {
-        Log.info("Busy Connections:\n {0}", busyInfo);
-      }
+      freeConnections = buffer.clearFreeList();
+      busyConnections = buffer.cleanupBusyList(leakTimeMinutes);
 
     } finally {
       lock.unlock();
+    }
+    // we are closing the connections outside the lock
+    doCloseFreeConnections(freeConnections, logErrors);
+    doCloseBusyConnections(busyConnections, logErrors);
+    String busyInfo = getBusyConnectionInformation();
+    if (!busyInfo.isEmpty()) {
+      Log.info("Busy Connections:\n {0}", busyInfo);
     }
   }
 
@@ -406,28 +411,26 @@ final class PooledConnectionQueue {
   }
 
   /**
-   * Close all the connections that are in the free list.
+   * Close all the connections that are from the free list.
    */
-  private void closeFreeConnections(boolean logErrors) {
-    List<PooledConnection> tempList;
-    lock.lock();
-    try {
-      tempList = buffer.clearFreeList();
-    } finally {
-      lock.unlock();
-    }
-    // closing the connections is done outside lock
+  void doCloseFreeConnections(List<PooledConnection> connections, boolean logErrors) {
     if (Log.isLoggable(System.Logger.Level.TRACE)) {
-      Log.trace("... closing all {0} connections from the free list with logErrors: {1}", tempList.size(), logErrors);
+      Log.trace("... closing all {0} connections from the free list with logErrors: {1}", connections.size(), logErrors);
     }
-    for (PooledConnection connection : tempList) {
-      connection.closeConnectionFully(logErrors);
+    for (PooledConnection pc : connections) {
+      try {
+        pc.closeConnectionFully(logErrors);
+      } catch (Throwable ex) {
+        Log.error("Error when closing potentially leaked connection " + pc.description(), ex);
+      }
     }
   }
 
   /**
    * Close any busy connections that have not been used for some time.
    * <p>
+   * The connections are removed with buffer.cleanupBusyList(leakTimeout)
+   * from the buffer and are normally closed outside the lock.
    * These connections are considered to have leaked from the connection pool.
    * <p>
    * Connection leaks occur when code doesn't ensure that connections are
@@ -435,19 +438,15 @@ final class PooledConnectionQueue {
    * appropriate try catch finally block to ensure connections are always
    * closed and put back into the pool.
    */
-  void closeBusyConnections(long leakTimeMinutes) {
-    List<PooledConnection> tempList;
-    lock.lock();
-    try {
-      tempList = buffer.cleanupBusyList(leakTimeMinutes);
-    } finally {
-      lock.unlock();
+  void doCloseBusyConnections(List<PooledConnection> connections, boolean logErrors) {
+    if (Log.isLoggable(System.Logger.Level.TRACE)) {
+      Log.trace("... closing all {0} connections from the busy list with logErrors: {1}", connections.size(), logErrors);
     }
-    for (PooledConnection pc : tempList) {
+    for (PooledConnection pc : connections) {
       try {
         Log.warn("DataSource closing busy connection? {0}", pc.fullDescription());
         System.out.println("CLOSING busy connection: " + pc.fullDescription());
-        pc.closeConnectionFully(false);
+        pc.closeConnectionFully(logErrors);
       } catch (Exception ex) {
         Log.error("Error when closing potentially leaked connection " + pc.description(), ex);
       }
