@@ -13,7 +13,7 @@
   <packaging>pom</packaging>
 
   <scm>
-    <developerConnection>scm:git:git@github.com:ebean-orm/ebean-datasource.git</developerConnection>
+    <developerConnection>scm:git:git@github.com:FOCONIS/ebean-datasource.git</developerConnection>
     <tag>HEAD</tag>
   </scm>
 
@@ -21,5 +21,36 @@
     <module>ebean-datasource</module>
     <module>ebean-datasource-api</module>
   </modules>
+
+  <profiles>
+    <profile>
+      <id>foconis</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <distributionManagement>
+        <repository>
+          <id>foconis-release</id>
+          <name>FOCONIS Release Repository</name>
+          <url>https://mvnrepo.foconis.de/repository/release/</url>
+        </repository>
+        <snapshotRepository>
+          <id>foconis-snapshot</id>
+          <name>FOCONIS Snapshot Repository</name>
+          <url>https://mvnrepo.foconis.de/repository/snapshot/</url>
+        </snapshotRepository>
+      </distributionManagement>
+    </profile>
+    <profile>
+      <id>github</id>
+      <distributionManagement>
+        <repository>
+          <id>github-release</id>
+          <name>FOCONIS Github Release Repository</name>
+          <url>https://maven.pkg.github.com/foconis/ebean-datasource</url>
+        </repository>
+      </distributionManagement>
+    </profile>
+  </profiles>
 
 </project>
