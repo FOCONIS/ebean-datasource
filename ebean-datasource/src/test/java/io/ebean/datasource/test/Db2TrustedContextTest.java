@@ -15,6 +15,7 @@ import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -84,9 +85,10 @@ class Db2TrustedContextTest {
    */
   @BeforeAll
   static void before() throws InvocationTargetException, IllegalAccessException {
-    container = Db2Container.builder("11.5.6.0a")
-      .port(55505)
-      .containerName("trusted_context")
+    container = Db2Container.builder("11.5.8.0")
+      .port(55506)
+      .containerName("trusted_context_gut")
+     .image("icr.io/db2_community/db2:11.5.8.0")
       .dbName("unit")
       .user("unit")
       .password("unit")
@@ -97,7 +99,7 @@ class Db2TrustedContextTest {
 
     container.start();
 
-    //setupTrustedContext("172.16.0.1"); // TODO: This will change per machine!
+   // setupTrustedContext("172.16.0.1"); // TODO: This will change per machine!
     executor = Executors.newCachedThreadPool();
   }
 
@@ -237,10 +239,25 @@ class Db2TrustedContextTest {
   void testTrustedContext() throws Exception {
     DataSourcePool pool = getPool(10, false, switchCount);
     try {
+      try (Connection conn = pool.getConnection()) {
+        try(Statement stmt = conn.createStatement()) {
+          exec(stmt, "SELECT * FROM SYSIBMADM.PRIVILEGES WHERE AUTHID = current user");
+          exec(stmt, "SELECT * FROM SYSIBMADM.PRIVILEGES WHERE AUTHID = current sqlid");
+          exec(stmt, "SELECT * FROM SYSCAT.ROLES");
+        }
+      }
       // set tenant of this thread to tenant1
       assertThat(executeQuery(pool, "select current user from sysibm.sysdummy1")).isEqualTo("WEBUSER ");
       assertThat(executeQuery(pool, "select current sqlid from sysibm.sysdummy1")).isEqualTo("WEBUSER ");
       currentTenant.set(TENANTS[0]);
+
+      try (Connection conn = pool.getConnection()) {
+        try(Statement stmt = conn.createStatement()) {
+          exec(stmt, "SELECT * FROM SYSIBMADM.PRIVILEGES WHERE AUTHID = current user");
+          exec(stmt, "SELECT * FROM SYSIBMADM.PRIVILEGES WHERE AUTHID = current sqlid");
+          exec(stmt, "SELECT * FROM SYSCAT.ROLES");
+        }
+      }
       // TestDDL
       pool.status(true);
       assertThat(executeQuery(pool, "select * from test")).isEqualTo(1); // each tenant must read its own data!
@@ -274,6 +291,26 @@ class Db2TrustedContextTest {
       assertThat(executeQuery(pool, "select current sqlid from sysibm.sysdummy1")).isEqualTo("WEBUSER ");
     } finally {
       pool.shutdown();
+    }
+  }
+
+  private static void exec(Statement stmt, String sql) throws SQLException {
+    System.out.println("=============================================================");
+    System.out.println(sql);
+    ResultSet resultSet = stmt.executeQuery(sql);
+    ResultSetMetaData metaData = resultSet.getMetaData();
+    int columns = metaData.getColumnCount();
+    for (int i = 1; i <= columns; i++) {
+      System.out.print(metaData.getColumnName(i) + "\t");
+    }
+    System.out.println();
+
+    // Print table body
+    while (resultSet.next()) {
+      for (int i = 1; i <= columns; i++) {
+        System.out.print(resultSet.getString(i) + "\t");
+      }
+      System.out.println();
     }
   }
 

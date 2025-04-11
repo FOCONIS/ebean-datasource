@@ -33,7 +33,7 @@ public class Db2TtrustedConnectionListener implements DataSourcePoolListener {
       trustedDb2Connection.setSchema(schema);
       connection.clearPreparedStatementCache();
       if (!trustedDb2Connection.isValid(1)) {
-        throw new SQLException("Connection is invalid");
+       // throw new SQLException("Connection is invalid");
       }
       switchCount.increment();
     }

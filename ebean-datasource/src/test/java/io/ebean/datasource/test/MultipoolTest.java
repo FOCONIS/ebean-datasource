@@ -117,18 +117,21 @@ class MultipoolTest {
   void testSharedPools() throws Exception {
     SharedPoolManager poolManager = new SharedPoolManager(container.jdbcUrl());
     DataSourcePool pool = DataSourceBuilder.create()
-      .maxConnections(5)
+      .maxConnections(15)
       .url(container.jdbcUrl())
       .username("unit")
       .password("unit")
       .listener(poolManager)
       .affinityProvider(poolManager::getCurrentTenant)
+      .affinitySize(7)
       .build();
 
     try {
       poolManager.setCurrentTenant(1);
       assertThat(executeQuery(pool, "select id from test")).isEqualTo(1);
+      assertThat(executeQuery(pool, "select id from test")).isEqualTo(1);
       poolManager.setCurrentTenant(2);
+      assertThat(executeQuery(pool, "select id from test")).isEqualTo(2);
       assertThat(executeQuery(pool, "select id from test")).isEqualTo(2);
       consumeConnections(poolManager,pool,15);
     } finally {
@@ -151,7 +154,7 @@ class MultipoolTest {
               ResultSet rs = pstmt.executeQuery();
               assertThat(rs.next()).isTrue();
             }
-            Thread.sleep(1);
+            //Thread.sleep(1);
             conn.rollback();
           }
         }

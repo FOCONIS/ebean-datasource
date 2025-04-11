@@ -93,7 +93,7 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
   private boolean validateOnHeartbeat = !System.getenv().containsKey("LAMBDA_TASK_ROOT");
   private int validateOnStaleSecs = UNSET;
   private boolean enforceCleanClose;
-  private int affinitySize = 257;
+  private int affinitySize = 0;
   private Supplier<Object> affinityProvider;
 
   @Override
@@ -261,6 +261,11 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
   public DataSourceConfig setName(String name) {
     this.name = name;
     return this;
+  }
+
+  @Override
+  public String name() {
+    return name;
   }
 
   @Override
