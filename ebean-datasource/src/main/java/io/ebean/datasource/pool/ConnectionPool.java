@@ -127,12 +127,11 @@ final class ConnectionPool implements DataSourcePool {
     this.applicationName = params.getApplicationName();
     this.clientInfo = params.getClientInfo();
     if (params.getAffinityProvider() == null) {
-      this.affinitySize = 0;
       this.affinityProvider = () -> null; // dummy
     } else {
       this.affinityProvider = params.getAffinityProvider();
-      this.affinitySize = params.getAffinitySize();
     }
+    this.affinitySize = params.getAffinitySize();
     this.queue = new PooledConnectionQueue(this);
     this.schema = params.getSchema();
     this.catalog = params.catalog();
@@ -190,7 +189,12 @@ final class ConnectionPool implements DataSourcePool {
         notify.dataSourceUp(this);
       }
     } catch (SQLException e) {
+      dataSourceUp.set(false);
+      dataSourceDownReason = e;
       Log.error("Error trying to ensure minimum connections, maybe db server is down - message:" + e.getMessage(), e);
+      if (notify != null) {
+        notify.dataSourceDown(this, e);
+      }
     } finally {
       notifyLock.unlock();
     }

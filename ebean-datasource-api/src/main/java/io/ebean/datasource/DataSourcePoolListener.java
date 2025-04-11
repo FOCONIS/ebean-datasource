@@ -18,7 +18,7 @@ public interface DataSourcePoolListener {
   /**
    * allows interception in the init phase.
    */
-  default Connection initConnection(DataSourcePool pool, Connection conn) {
+  default Connection initConnection(DataSourcePool pool, Connection conn) throws SQLException {
     return conn;
   }
 
