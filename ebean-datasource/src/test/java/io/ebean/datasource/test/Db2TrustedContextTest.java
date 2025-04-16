@@ -37,8 +37,6 @@ class Db2TrustedContextTest {
 
   private static Db2Container container;
 
-  private static Method dockerSuMethod = getSuMethod();
-
   private static ThreadLocal<Db2Tenant> currentTenant = new ThreadLocal<>();
   private static List<String> summary = new ArrayList<>();
   private static ExecutorService executor;
@@ -69,15 +67,8 @@ class Db2TrustedContextTest {
    */
   static void dockerSu(String user, String cmd) {
     System.out.println("dockerSu: " + user + ", " + cmd);
-    try {
-      List<String> ret = (List<String>) dockerSuMethod.invoke(container, user, cmd);
+      List<String> ret = container.dockerSu(user, cmd);
       System.out.println("OK: " + ret);
-    } catch (InvocationTargetException ite) {
-      System.err.println("FAIL: " + ite.getCause().getMessage());
-    } catch (Exception e) {
-      System.err.println("FAIL: ");
-      e.printStackTrace();
-    }
   }
 
   /**

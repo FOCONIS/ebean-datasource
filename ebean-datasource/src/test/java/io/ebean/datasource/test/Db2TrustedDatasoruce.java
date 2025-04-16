@@ -1,6 +1,7 @@
 package io.ebean.datasource.test;
 
 import com.ibm.db2.jcc.DB2Connection;
+import com.ibm.db2.jcc.DB2ConnectionPoolDataSource;
 import com.ibm.db2.jcc.DB2PooledConnection;
 
 import javax.sql.DataSource;
@@ -8,6 +9,7 @@ import java.io.PrintWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.Properties;
@@ -18,12 +20,14 @@ import java.util.logging.Logger;
  */
 public class Db2TrustedDatasoruce implements DataSource {
 
+  private final String url;
   private ConnectionInfo info;
   private String user;
   private String password;
 
   public Db2TrustedDatasoruce(String url, String user, String password) throws SQLException {
     try {
+      this.url = url;
       this.info = ConnectionInfo.parse(url);
       this.user = user;
       this.password = password;
@@ -35,20 +39,32 @@ public class Db2TrustedDatasoruce implements DataSource {
   @Override
   public Connection getConnection() throws SQLException {
 
-    com.ibm.db2.jcc.DB2ConnectionPoolDataSource ds1 =
-      new com.ibm.db2.jcc.DB2ConnectionPoolDataSource();
-    ds1.setServerName(info.host);
-    ds1.setPortNumber(info.port);
-    ds1.setDatabaseName(info.dbName);
-    ds1.setDriverType(4);
-    ds1.setUser(user);
-    ds1.setPassword(password);
+    DB2ConnectionPoolDataSource ds1 = getDataSource();
 
     Object[] objects = ds1.getDB2TrustedPooledConnection(user, password, info.properties);
     DB2PooledConnection pooledCon = (DB2PooledConnection) objects[0];
     byte[] cookie = (byte[]) objects[1];
 
     return new Db2TrustedConnection((DB2Connection) pooledCon.getConnection(), cookie, user);
+  }
+
+
+  @Override
+  public Connection getConnection(String username, String password) throws SQLException {
+    return DriverManager.getConnection(url, username, password);//getDataSource().getPooledConnection(username, password).getConnection();
+  }
+
+
+  private DB2ConnectionPoolDataSource getDataSource() {
+    DB2ConnectionPoolDataSource ds1 =
+      new DB2ConnectionPoolDataSource();
+    ds1.setServerName(info.host);
+    ds1.setPortNumber(info.port);
+    ds1.setDatabaseName(info.dbName);
+    ds1.setDriverType(4);
+    ds1.setUser(user);
+    ds1.setPassword(password);
+    return ds1;
   }
 
 
@@ -102,11 +118,6 @@ public class Db2TrustedDatasoruce implements DataSource {
       }
       return new ConnectionInfo(host, port, dbName, properties);
     }
-  }
-
-  @Override
-  public Connection getConnection(String username, String password) throws SQLException {
-    throw new UnsupportedOperationException("Not supported.");
   }
 
   @Override
