@@ -189,12 +189,7 @@ final class ConnectionPool implements DataSourcePool {
         notify.dataSourceUp(this);
       }
     } catch (SQLException e) {
-      dataSourceUp.set(false);
-      dataSourceDownReason = e;
       Log.error("Error trying to ensure minimum connections, maybe db server is down - message:" + e.getMessage(), e);
-      if (notify != null) {
-        notify.dataSourceDown(this, e);
-      }
     } finally {
       notifyLock.unlock();
     }
