@@ -146,7 +146,9 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
       copy.clientInfo = new Properties();
       copy.clientInfo.putAll(clientInfo);
     }
-    copy.initSql = initSql;
+    if (initSql != null) {
+      copy.initSql = new ArrayList<>(initSql);
+    }
     copy.alert = alert;
     copy.listener = listener;
     copy.enforceCleanClose = enforceCleanClose;
