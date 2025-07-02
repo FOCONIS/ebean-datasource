@@ -812,6 +812,17 @@ final class ConnectionPool implements DataSourcePool {
     throw new SQLException("Method not supported");
   }
 
+  @Override
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+    sb.append("name[").append(name).append(']');
+    if (poolListener != null) {
+      sb.append(" poolListener[").append(poolListener).append(']');
+    }
+    sb.append(' ').append(queue);
+    return sb.toString();
+  }
+
   /**
    * Return the current status of the connection pool.
    * <p>
@@ -936,5 +947,4 @@ final class ConnectionPool implements DataSourcePool {
       return meanAcquireNanos;
     }
   }
-
 }
