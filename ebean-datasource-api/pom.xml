@@ -4,7 +4,7 @@
   <parent>
     <artifactId>ebean-datasource-parent</artifactId>
     <groupId>io.ebean</groupId>
-    <version>9.5-FOC4</version>
+    <version>9.5-FOC5-SNAPSHOT</version>
   </parent>
 
   <artifactId>ebean-datasource-api</artifactId>
