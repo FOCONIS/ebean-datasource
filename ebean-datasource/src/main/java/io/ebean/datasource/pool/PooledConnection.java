@@ -2,9 +2,17 @@ package io.ebean.datasource.pool;
 
 import io.ebean.datasource.DataSourceConnection;
 
-import java.sql.*;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.SQLWarning;
+import java.sql.Savepoint;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -255,51 +263,72 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
     if (Log.isLoggable(System.Logger.Level.TRACE)) {
       Log.trace("Closing Connection[{0}] reason[{1}], pstmtStats: {2}", name, closeReason, pstmtCache.description());
     }
-    if (pool != null) {
-      pool.pstmtCacheMetrics(pstmtCache);
+    if (pool == null) {
+      return; // this can happen in tests only.
     }
+    pool.pstmtCacheMetrics(pstmtCache);
+    pool.closeConnectionFullyAsync(this, logErrors);
+  }
+
+  /**
+   * this method performs network IO and may block
+   */
+  void doCloseConnection(boolean logErrors) {
+    pool.dec();
+    long start = System.nanoTime();
     try {
-      if (connection.isClosed()) {
-        // Typically, the JDBC Driver has its own JVM shutdown hook and already
-        // closed the connections in our DataSource pool so making this DEBUG level
-        Log.trace("Closing Connection[{0}] that is already closed?", name);
-        return;
+      try {
+        if (connection.isClosed()) {
+          // Typically, the JDBC Driver has its own JVM shutdown hook and already
+          // closed the connections in our DataSource pool so making this DEBUG level
+          Log.trace("Closing Connection[{0}] that is already closed?", name);
+          return;
+        }
+      } catch (SQLException ex) {
+        if (logErrors) {
+          Log.error("Error checking if connection [" + name + "] is closed", ex);
+        }
       }
-    } catch (SQLException ex) {
-      if (logErrors) {
-        Log.error("Error checking if connection [" + name + "] is closed", ex);
+      clearPreparedStatementCache();
+      try {
+        // DB2 (and some other DBMS) may have uncommitted changes and do not allow close
+        // so try to do a rollback.
+        if (!connection.getAutoCommit()) {
+          connection.rollback();
+        }
+      } catch (SQLException ex) {
+        if (logErrors) {
+          Log.warn("Could not perform rollback", ex);
+        }
+      }
+      try {
+        connection.close();
+      } catch (SQLException ex) {
+        if (logErrors || Log.isLoggable(System.Logger.Level.DEBUG)) {
+          Log.error("Error when fully closing connection [" + fullDescription() + "]", ex);
+        }
+      }
+    } finally {
+      long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+      if (millis > 500) {
+        Log.warn("Closing connection [" + fullDescription() + "] took an unexpected long time of " + millis + " ms");
       }
     }
+  }
+
+  public void clearPreparedStatementCache() {
     lock.lock();
     try {
       for (ExtendedPreparedStatement ps : pstmtCache.values()) {
-        ps.closeDestroy();
-      }
-    } catch (SQLException ex) {
-      if (logErrors) {
-        Log.warn("Error when closing connection Statements", ex);
+        try {
+          ps.closeDestroy();
+        } catch (SQLException ex) {
+          Log.warn("Error when closing connection Statements", ex);
+        }
       }
     } finally {
+      pstmtCache.clear();
       lock.unlock();
-    }
-    try {
-      // DB2 (and some other DBMS) may have uncommitted changes and do not allow close
-      // so try to do a rollback.
-      if (!connection.getAutoCommit()) {
-        connection.rollback();
-      }
-    } catch (SQLException ex) {
-      if (logErrors) {
-        Log.warn("Could not perform rollback", ex);
-      }
-    }
-    try {
-      connection.close();
-      pool.dec();
-    } catch (SQLException ex) {
-      if (logErrors || Log.isLoggable(System.Logger.Level.DEBUG)) {
-        Log.error("Error when fully closing connection [" + fullDescription() + "]", ex);
-      }
     }
   }
 
@@ -1003,13 +1032,4 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
     return filteredList.toString();
   }
 
-  @Override
-  public void clearPreparedStatementCache() {
-    lock.lock();
-    try {
-      pstmtCache.clear();
-    } finally {
-      lock.unlock();
-    }
-  }
 }

@@ -4,12 +4,13 @@
   <parent>
     <groupId>org.avaje</groupId>
     <artifactId>java11-oss</artifactId>
-    <version>4.5</version>
+    <version>5.1</version>
   </parent>
 
   <groupId>io.ebean</groupId>
   <artifactId>ebean-datasource-parent</artifactId>
-  <version>9.5-FOC4-SNAPSHOT</version>
+  <name>ebean-datasource-parent</name>
+  <version>10.4-FOC1-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <scm>
@@ -51,6 +52,17 @@
         </repository>
       </distributionManagement>
     </profile>
+    <profile>
+      <id>central</id>
+    </profile>
+    <profile>
+      <id>default</id>
+      <activation>
+        <activeByDefault/>
+      </activation>
+      <modules>
+        <module>blackbox-tests</module>
+      </modules>
+    </profile>
   </profiles>
-
 </project>

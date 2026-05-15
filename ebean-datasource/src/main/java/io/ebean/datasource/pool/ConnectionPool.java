@@ -6,13 +6,14 @@ import javax.sql.DataSource;
 import java.io.PrintWriter;
 import java.sql.*;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
-
-import static io.ebean.datasource.pool.TransactionIsolation.description;
 
 /**
  * A robust DataSource implementation.
@@ -25,6 +26,12 @@ import static io.ebean.datasource.pool.TransactionIsolation.description;
  * </ul>
  */
 final class ConnectionPool implements DataSourcePool {
+
+  @FunctionalInterface
+  interface Heartbeat {
+
+    void stop();
+  }
 
   private static final String APPLICATION_NAME = "ApplicationName";
   private final ReentrantLock heartbeatLock = new ReentrantLock(false);
@@ -40,6 +47,7 @@ final class ConnectionPool implements DataSourcePool {
    */
   private final DataSourceAlert notify;
   private final DataSourcePoolListener poolListener;
+  private final NewConnectionInitializer connectionInitializer;
   private final List<String> initSql;
   private final String user;
   private final String schema;
@@ -78,12 +86,15 @@ final class ConnectionPool implements DataSourcePool {
   private final AtomicBoolean dataSourceUp = new AtomicBoolean(false);
   private SQLException dataSourceDownReason;
   private final int minConnections;
+  private final int initialConnections;
   private int maxConnections;
   private final int waitTimeoutMillis;
   private final int pstmtCacheSize;
   private final PooledConnectionQueue queue;
-  private Timer heartBeatTimer;
+  private Heartbeat heartbeat;
   private int heartbeatPoolExhaustedCount;
+  private final ExecutorService executor;
+
   /**
    * Used to find and close() leaked connections. Leaked connections are
    * thought to be busy but have not been used for some time. Each time a
@@ -92,7 +103,6 @@ final class ConnectionPool implements DataSourcePool {
   private final long leakTimeMinutes;
   private final LongAdder pscHit = new LongAdder();
   private final LongAdder pscMiss = new LongAdder();
-  private final LongAdder pscPut = new LongAdder();
   private final LongAdder pscRem = new LongAdder();
 
   private final boolean shutdownOnJvmExit;
@@ -103,6 +113,7 @@ final class ConnectionPool implements DataSourcePool {
     this.name = name;
     this.notify = params.getAlert();
     this.poolListener = params.getListener();
+    this.connectionInitializer = params.getConnectionInitializer();
     this.autoCommit = params.isAutoCommit();
     this.readOnly = params.isReadOnly();
     this.failOnStart = params.isFailOnStart();
@@ -115,6 +126,7 @@ final class ConnectionPool implements DataSourcePool {
     this.maxStackTraceSize = params.getMaxStackTraceSize();
     this.pstmtCacheSize = params.getPstmtCacheSize();
     this.minConnections = params.getMinConnections();
+    this.initialConnections = params.getInitialConnections();
     this.maxConnections = params.getMaxConnections();
     this.waitTimeoutMillis = params.getWaitTimeoutMillis();
     this.heartbeatFreqSecs = params.getHeartbeatFreqSecs();
@@ -143,6 +155,7 @@ final class ConnectionPool implements DataSourcePool {
       init();
     }
     this.nextTrimTime = System.currentTimeMillis() + trimPoolFreqMillis;
+    this.executor = ExecutorFactory.newExecutor();
   }
 
   private void init() {
@@ -151,6 +164,8 @@ final class ConnectionPool implements DataSourcePool {
         initialiseDatabase();
       }
       initialiseConnections();
+      // reset the metrics
+      status(true);
     } catch (SQLException e) {
       throw new DataSourceInitialiseException("Error initialising DataSource with user: " + user + " error:" + e.getMessage(), e);
     }
@@ -162,15 +177,7 @@ final class ConnectionPool implements DataSourcePool {
   void pstmtCacheMetrics(PstmtCache pstmtCache) {
     pscHit.add(pstmtCache.hitCount());
     pscMiss.add(pstmtCache.missCount());
-    pscPut.add(pstmtCache.putCount());
     pscRem.add(pstmtCache.removeCount());
-  }
-
-  final class HeartBeatRunnable extends TimerTask {
-    @Override
-    public void run() {
-      heartBeat();
-    }
   }
 
   @Override
@@ -181,7 +188,7 @@ final class ConnectionPool implements DataSourcePool {
   private void tryEnsureMinimumConnections() {
     notifyLock.lock();
     try {
-      queue.ensureMinimumConnections();
+      queue.createConnections(initialConnections);
       // if we successfully come up without an exception, send datasource up
       // notification. This makes it easier, because the application needs not
       // to implement special handling, if the db comes up the first time or not.
@@ -199,7 +206,7 @@ final class ConnectionPool implements DataSourcePool {
     long start = System.currentTimeMillis();
     dataSourceUp.set(true);
     if (failOnStart) {
-      queue.ensureMinimumConnections();
+      queue.createConnections(initialConnections);
     } else {
       tryEnsureMinimumConnections();
     }
@@ -214,6 +221,28 @@ final class ConnectionPool implements DataSourcePool {
     final var ro = readOnly ? "readOnly[true] " : "";
     Log.info("DataSource [{0}] {1}autoCommit[{2}] [{3}] min[{4}] max[{5}] in[{6}ms]",
       name, ro, autoCommit, description(transactionIsolation), minConnections, maxConnections, (System.currentTimeMillis() - start), validateOnHeartbeat);
+  }
+
+  /**
+   * Return the string description of the transaction isolation level specified.
+   */
+  private static String description(int level) {
+    switch (level) {
+      case Connection.TRANSACTION_NONE:
+        return "NONE";
+      case Connection.TRANSACTION_READ_COMMITTED:
+        return "READ_COMMITTED";
+      case Connection.TRANSACTION_READ_UNCOMMITTED:
+        return "READ_UNCOMMITTED";
+      case Connection.TRANSACTION_REPEATABLE_READ:
+        return "REPEATABLE_READ";
+      case Connection.TRANSACTION_SERIALIZABLE:
+        return "SERIALIZABLE";
+      case -1:
+        return "NotSet";
+      default:
+        return "UNKNOWN[" + level + "]";
+    }
   }
 
   /**
@@ -373,7 +402,7 @@ final class ConnectionPool implements DataSourcePool {
    * This is called by the HeartbeatRunnable which should be scheduled to
    * run periodically (every heartbeatFreqSecs seconds).
    */
-  private void heartBeat() {
+  void heartbeat() {
     trimIdleConnections();
     if (validateOnHeartbeat) {
       testConnection();
@@ -421,7 +450,9 @@ final class ConnectionPool implements DataSourcePool {
    * Initializes the connection we got from the driver.
    */
   private Connection initConnection(Connection conn) throws SQLException {
-    conn.setAutoCommit(autoCommit);
+    if (connectionInitializer != null) {
+      connectionInitializer.preInitialize(conn);
+    }
     // isolation level is set globally for all connections (at least for H2) and
     // you will need admin rights - so we do not change it, if it already matches.
     if (conn.getTransactionIsolation() != transactionIsolation) {
@@ -457,8 +488,12 @@ final class ConnectionPool implements DataSourcePool {
         }
       }
     }
+    conn.setAutoCommit(autoCommit);
+    if (connectionInitializer != null) {
+      connectionInitializer.postInitialize(conn);
+    }
     if (poolListener != null) {
-      conn = poolListener.initConnection(this, conn);
+      conn = poolListener.wrapConnection(this, conn);
     }
     return conn;
   }
@@ -620,7 +655,7 @@ final class ConnectionPool implements DataSourcePool {
   }
 
   /**
-   * Create an un-pooled connection with the given username and password.
+   * Create an unpooled connection with the given username and password.
    * <p>
    * This uses the default isolation level and autocommit mode.
    */
@@ -662,13 +697,6 @@ final class ConnectionPool implements DataSourcePool {
     return c;
   }
 
-  /**
-   * This will close all the free connections, and then go into a wait loop,
-   * waiting for the busy connections to be freed.
-   * <p>
-   * The DataSources's should be shutdown AFTER thread pools. Leaked
-   * Connections are not waited on, as that would hang the server.
-   */
   @Override
   public void shutdown() {
     shutdownPool(true, false);
@@ -679,15 +707,23 @@ final class ConnectionPool implements DataSourcePool {
     shutdownPool(false, false);
   }
 
-  private void shutdownPool(boolean closeBusyConnections, boolean fromHook) {
-    stopHeartBeatIfRunning();
-    PoolStatus status = queue.shutdown(closeBusyConnections);
-    dataSourceUp.set(false);
-    if (fromHook) {
-      Log.info("DataSource [{0}] shutdown on JVM exit {1}  psc[hit:{2} miss:{3} put:{4} rem:{5}]", name, status, pscHit, pscMiss, pscPut, pscRem);
-    } else {
-      Log.info("DataSource [{0}] shutdown {1}  psc[hit:{2} miss:{3} put:{4} rem:{5}]", name, status, pscHit, pscMiss, pscPut, pscRem);
-      removeShutdownHook();
+  private void shutdownPool(boolean fullShutdown, boolean fromHook) {
+    heartbeatLock.lock();
+    try {
+      stopHeartBeatIfRunning();
+      PoolStatus status = queue.shutdown(fullShutdown);
+      dataSourceUp.set(false);
+      if (fullShutdown) {
+        shutdownExecutor();
+      }
+      if (fromHook) {
+        Log.info("DataSource [{0}] shutdown on JVM exit {1}  psc[hit:{2} miss:{3} rem:{4}]", name, status, pscHit, pscMiss, pscRem);
+      } else {
+        Log.info("DataSource [{0}] shutdown {1}  psc[hit:{2} miss:{3} rem:{4}]", name, status, pscHit, pscMiss, pscRem);
+        removeShutdownHook();
+      }
+    } finally {
+      heartbeatLock.unlock();
     }
   }
 
@@ -723,11 +759,10 @@ final class ConnectionPool implements DataSourcePool {
     heartbeatLock.lock();
     try {
       // only start if it is not already running
-      if (heartBeatTimer == null) {
+      if (heartbeat == null) {
         int freqMillis = heartbeatFreqSecs * 1000;
         if (freqMillis > 0) {
-          heartBeatTimer = new Timer(name + ".heartBeat", true);
-          heartBeatTimer.scheduleAtFixedRate(new HeartBeatRunnable(), freqMillis, freqMillis);
+          heartbeat = ExecutorFactory.newHeartBeat(this, freqMillis);
         }
       }
     } finally {
@@ -739,12 +774,64 @@ final class ConnectionPool implements DataSourcePool {
     heartbeatLock.lock();
     try {
       // only stop if it was running
-      if (heartBeatTimer != null) {
-        heartBeatTimer.cancel();
-        heartBeatTimer = null;
+      if (heartbeat != null) {
+        heartbeat.stop();
+        heartbeat = null;
       }
     } finally {
       heartbeatLock.unlock();
+    }
+  }
+
+  private static final class AsyncCloser implements Runnable {
+    final PooledConnection pc;
+    final boolean logErrors;
+
+    private AsyncCloser(PooledConnection pc, boolean logErrors) {
+      this.pc = pc;
+      this.logErrors = logErrors;
+    }
+
+    @Override
+    public void run() {
+      pc.doCloseConnection(logErrors);
+    }
+
+    @Override
+    public String toString() {
+      return pc.toString();
+    }
+  }
+
+  /**
+   * Closes the connection in the background as it may be slow or block.
+   */
+  void closeConnectionFullyAsync(PooledConnection pc, boolean logErrors) {
+    if (!executor.isShutdown()) {
+      try {
+        executor.submit(new AsyncCloser(pc, logErrors));
+        return;
+      } catch (RejectedExecutionException e) {
+        Log.trace("DataSource [{0}] closing connection synchronously", name);
+      }
+    }
+    // it is possible that we receive runnables after shutdown.
+    // in this case, we will execute them immediately (outside lock)
+    pc.doCloseConnection(logErrors);
+  }
+
+  private void shutdownExecutor() {
+    executor.shutdown();
+    try {
+      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+        Log.warn("DataSource [{0}] on shutdown, timeout waiting for connections to close", name);
+      }
+    } catch (InterruptedException ie) {
+      Log.warn("DataSource [{0}] on shutdown, interrupted closing connections", name, ie);
+    }
+    final var pendingTasks = executor.shutdownNow();
+    if (!pendingTasks.isEmpty()) {
+      Log.warn("DataSource [{0}] on shutdown, {1} pending connections were not closed", name, pendingTasks.size());
     }
   }
 
@@ -823,13 +910,6 @@ final class ConnectionPool implements DataSourcePool {
     return sb.toString();
   }
 
-  /**
-   * Return the current status of the connection pool.
-   * <p>
-   * If you pass reset = true then the counters such as
-   * hitCount, waitCount and highWaterMark are reset.
-   * </p>
-   */
   @Override
   public PoolStatus status(boolean reset) {
     return queue.status(reset);
@@ -845,10 +925,12 @@ final class ConnectionPool implements DataSourcePool {
     private final int highWaterMark;
     private final int waitCount;
     private final int hitCount;
+    private final long totalAcquireMicros;
     private final long maxAcquireMicros;
+    private final long totalWaitMicros;
     private final long meanAcquireNanos;
 
-    Status(int minSize, int maxSize, int free, int busy, int waiting, int highWaterMark, int waitCount, int hitCount, long totalAcquireNanos, long maxAcquireNanos) {
+    Status(int minSize, int maxSize, int free, int busy, int waiting, int highWaterMark, int waitCount, int hitCount, long totalAcquireNanos, long maxAcquireNanos, long totalWaitNanos) {
       this.minSize = minSize;
       this.maxSize = maxSize;
       this.free = free;
@@ -857,84 +939,67 @@ final class ConnectionPool implements DataSourcePool {
       this.highWaterMark = highWaterMark;
       this.waitCount = waitCount;
       this.hitCount = hitCount;
-      this.meanAcquireNanos = hitCount == 0 ? 0 : totalAcquireNanos / hitCount;
+      this.totalAcquireMicros = totalAcquireNanos / 1000;
       this.maxAcquireMicros = maxAcquireNanos / 1000;
+      this.totalWaitMicros = totalWaitNanos / 1000;
+      this.meanAcquireNanos = hitCount == 0 ? 0 : totalAcquireNanos / hitCount;
     }
 
     @Override
     public String toString() {
       return "min[" + minSize + "] max[" + maxSize + "] free[" + free + "] busy[" + busy + "] waiting[" + waiting
         + "] highWaterMark[" + highWaterMark + "] waitCount[" + waitCount + "] hitCount[" + hitCount
-        + "] meanAcquireNanos[" + meanAcquireNanos + "] maxAcquireMicros[" + maxAcquireMicros + "]";
+        + "] totalAcquireMicros[" + totalAcquireMicros + "] maxAcquireMicros[" + maxAcquireMicros + "] totalWaitMicros[" + totalWaitMicros + "]";
     }
 
-    /**
-     * Return the min pool size.
-     */
     @Override
     public int minSize() {
       return minSize;
     }
 
-    /**
-     * Return the max pool size.
-     */
     @Override
     public int maxSize() {
       return maxSize;
     }
 
-    /**
-     * Return the current number of free connections in the pool.
-     */
     @Override
     public int free() {
       return free;
     }
 
-    /**
-     * Return the current number of busy connections in the pool.
-     */
     @Override
     public int busy() {
       return busy;
     }
 
-    /**
-     * Return the current number of threads waiting for a connection.
-     */
     @Override
     public int waiting() {
       return waiting;
     }
 
-    /**
-     * Return the high water mark of busy connections.
-     */
     @Override
     public int highWaterMark() {
       return highWaterMark;
     }
 
-    /**
-     * Return the total number of times a thread had to wait.
-     */
     @Override
     public int waitCount() {
       return waitCount;
     }
 
-    /**
-     * Return the total number of times there was an attempt to get a
-     * connection.
-     * <p>
-     * If the attempt to get a connection failed with a timeout or other
-     * exception those attempts are still included in this hit count.
-     * </p>
-     */
     @Override
     public int hitCount() {
       return hitCount;
+    }
+
+    @Override
+    public long totalAcquireMicros() {
+      return totalAcquireMicros;
+    }
+
+    @Override
+    public long totalWaitMicros() {
+      return totalWaitMicros;
     }
 
     @Override
@@ -947,4 +1012,5 @@ final class ConnectionPool implements DataSourcePool {
       return meanAcquireNanos;
     }
   }
+
 }

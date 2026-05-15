@@ -11,6 +11,9 @@ import java.util.Properties;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 /**
  * Configuration information for a DataSource.
  *
@@ -28,6 +31,7 @@ import java.util.function.Supplier;
 @SuppressWarnings("removal")
 public class DataSourceConfig implements DataSourceBuilder.Settings {
 
+  private static final int UNSET = -1;
   private static final String POSTGRES = "postgres";
 
   private String name = "";
@@ -55,8 +59,9 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
    * The optional database owner password (for running InitDatabase).
    */
   private String ownerPassword;
-  private int minConnections = 2;
-  private int maxConnections = 200;
+  private int minConnections = UNSET; // defaults to 2
+  private int initialConnections = UNSET; // defaults to 2
+  private int maxConnections = UNSET; // defaults to 200
   private int isolationLevel = Connection.TRANSACTION_READ_COMMITTED;
   private boolean autoCommit;
   private boolean readOnly;
@@ -70,7 +75,7 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
   private int maxInactiveTimeSecs = 300;
   private int maxAgeMinutes = 0;
   private int trimPoolFreqSecs = 59;
-  private int pstmtCacheSize = 50;
+  private int pstmtCacheSize = 300;
   private int cstmtCacheSize = 20;
   private int waitTimeoutMillis = 1000;
   private String poolListener;
@@ -80,6 +85,7 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
   private List<String> initSql;
   private DataSourceAlert alert;
   private DataSourcePoolListener listener;
+  private NewConnectionInitializer connectionInitializer;
   private Properties clientInfo;
   private String applicationName;
   private boolean shutdownOnJvmExit;
@@ -118,6 +124,7 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
     copy.driverClassName = driverClassName;
     copy.applicationName = applicationName;
     copy.minConnections = minConnections;
+    copy.initialConnections = initialConnections;
     copy.maxConnections = maxConnections;
     copy.isolationLevel = isolationLevel;
     copy.autoCommit = autoCommit;
@@ -187,10 +194,13 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
     if (catalog == null) {
       catalog = other.catalog();
     }
-    if (minConnections == 2 && other.getMinConnections() < 2) {
+    if (minConnections == UNSET) {
       minConnections = other.getMinConnections();
     }
-    if (maxConnections == 200 && other.getMaxConnections() != 200) {
+    if (initialConnections == UNSET) {
+      initialConnections = other.getInitialConnections();
+    }
+    if (maxConnections == UNSET) {
       maxConnections = other.getMaxConnections();
     }
     if (!shutdownOnJvmExit && other.isShutdownOnJvmExit()) {
@@ -423,7 +433,7 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
 
   @Override
   public int getMinConnections() {
-    return minConnections;
+    return minConnections == UNSET ? 2 : minConnections;
   }
 
   @Override
@@ -433,8 +443,21 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
   }
 
   @Override
+  public int getInitialConnections() {
+    int min = getMinConnections();
+    int max = getMaxConnections();
+    return initialConnections == UNSET ?  min : min(max(min, initialConnections), max);
+  }
+
+  @Override
+  public DataSourceConfig initialConnections(int initialConnections) {
+    this.initialConnections = initialConnections;
+    return this;
+  }
+
+  @Override
   public int getMaxConnections() {
-    return maxConnections;
+    return maxConnections == UNSET ? 200 : maxConnections;
   }
 
   @Override
@@ -462,6 +485,25 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
   @Override
   public DataSourceConfig setListener(DataSourcePoolListener listener) {
     this.listener = listener;
+    return this;
+  }
+
+  @Override
+  public NewConnectionInitializer getConnectionInitializer() {
+    return connectionInitializer;
+  }
+
+  @Override
+  public DataSourceBuilder connectionInitializer(NewConnectionInitializer connectionInitializer) {
+    this.connectionInitializer = connectionInitializer;
+    return this;
+  }
+
+  @Override
+  public DataSourceBuilder defaultConnectionInitializer(NewConnectionInitializer defaultInitializer) {
+    if (connectionInitializer == null && defaultInitializer != null) {
+      connectionInitializer = defaultInitializer;
+    }
     return this;
   }
 
@@ -841,6 +883,7 @@ public class DataSourceConfig implements DataSourceBuilder.Settings {
     trimPoolFreqSecs = properties.getInt("trimPoolFreqSecs", trimPoolFreqSecs);
     maxAgeMinutes = properties.getInt("maxAgeMinutes", maxAgeMinutes);
     minConnections = properties.getInt("minConnections", minConnections);
+    initialConnections = properties.getInt("initialConnections", initialConnections);
     maxConnections = properties.getInt("maxConnections", maxConnections);
     pstmtCacheSize = properties.getInt("pstmtCacheSize", pstmtCacheSize);
     cstmtCacheSize = properties.getInt("cstmtCacheSize", cstmtCacheSize);

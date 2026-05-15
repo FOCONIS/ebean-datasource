@@ -200,7 +200,7 @@ class MultipoolTest {
     }
 
     @Override
-    public Connection initConnection(DataSourcePool pool, Connection conn) {
+    public Connection wrapConnection(DataSourcePool pool, Connection conn) {
       return new SharedConnection(conn);
     }
 

@@ -318,7 +318,7 @@ public interface DataSourceBuilder {
   DataSourceBuilder setReadOnly(boolean readOnly);
 
   /**
-   * Set the minimum number of connections the pool should maintain.
+   * Set the minimum number of connections the pool should maintain. Defaults to 2 when not set.
    */
   default DataSourceBuilder minConnections(int minConnections) {
     return setMinConnections(minConnections);
@@ -331,7 +331,18 @@ public interface DataSourceBuilder {
   DataSourceBuilder setMinConnections(int minConnections);
 
   /**
-   * Set the maximum number of connections the pool can reach.
+   * Set the number of initial connections to create when starting.
+   * <p>
+   * When not set the initial number of connections will be min connections.
+   * <p>
+   * The benefit of setting an initial number of connections is for smoother
+   * deployment into an active production system where an application will get
+   * assigned production load.
+   */
+  DataSourceBuilder initialConnections(int initialConnections);
+
+  /**
+   * Set the maximum number of connections the pool can reach. Defaults to 200 when not set.
    */
   default DataSourceBuilder maxConnections(int maxConnections) {
     return setMaxConnections(maxConnections);
@@ -368,6 +379,16 @@ public interface DataSourceBuilder {
    */
   @Deprecated(forRemoval = true)
   DataSourceBuilder setListener(DataSourcePoolListener listener);
+
+  /**
+   * Set the connection initializer to use.
+   */
+  DataSourceBuilder connectionInitializer(NewConnectionInitializer connectionListener);
+
+  /**
+   * Set the default connection initializer to use if not already set.
+   */
+  DataSourceBuilder defaultConnectionInitializer(NewConnectionInitializer defaultInitializer);
 
   /**
    * Set a SQL statement used to test the database is accessible.
@@ -464,13 +485,24 @@ public interface DataSourceBuilder {
 
   /**
    * Set the size of the PreparedStatement cache (per connection).
+   * <p>
+   * Defaults to 300.
    */
   default DataSourceBuilder pstmtCacheSize(int pstmtCacheSize) {
     return setPstmtCacheSize(pstmtCacheSize);
   }
 
   /**
-   * @deprecated - migrate to {@link #pstmtCacheSize(int)}.
+   * Set the size of the PreparedStatement cache (per connection).
+   * <p>
+   * Defaults to 300.
+   */
+  default DataSourceBuilder preparedStatementCacheSize(int pstmtCacheSize) {
+    return setPstmtCacheSize(pstmtCacheSize);
+  }
+
+  /**
+   * @deprecated - migrate to {@link #preparedStatementCacheSize(int)}.
    */
   @Deprecated
   DataSourceBuilder setPstmtCacheSize(int pstmtCacheSize);
@@ -491,6 +523,8 @@ public interface DataSourceBuilder {
   /**
    * Set the time in millis to wait for a connection before timing out once the
    * pool has reached its maximum size.
+   * <p>
+   * Defaults to 1000 millis (1 second).
    */
   default DataSourceBuilder waitTimeoutMillis(int waitTimeoutMillis) {
     return setWaitTimeoutMillis(waitTimeoutMillis);
@@ -504,6 +538,8 @@ public interface DataSourceBuilder {
 
   /**
    * Set the maximum age a connection can be in minutes.
+   * <p>
+   * Defaults to unlimited age, no connections are trimmed based on age.
    */
   default DataSourceBuilder maxAgeMinutes(int maxAgeMinutes) {
     return setMaxAgeMinutes(maxAgeMinutes);
@@ -918,14 +954,19 @@ public interface DataSourceBuilder {
     boolean isReadOnly();
 
     /**
-     * Return the minimum number of connections the pool should maintain.
+     * Return the minimum number of connections the pool should maintain. Defaults to 2.
      */
     int getMinConnections();
 
     /**
-     * Return the maximum number of connections the pool can reach.
+     * Return the maximum number of connections the pool can reach. Defaults to 200.
      */
     int getMaxConnections();
+
+    /**
+     * Return the number of initial connections to create on startup.
+     */
+    int getInitialConnections();
 
     /**
      * Return the alert implementation to use.
@@ -936,6 +977,11 @@ public interface DataSourceBuilder {
      * Return the listener to use.
      */
     DataSourcePoolListener getListener();
+
+    /**
+     * Return the new connection listener to use.
+     */
+    NewConnectionInitializer getConnectionInitializer();
 
     /**
      * Return a SQL statement used to test the database is accessible.

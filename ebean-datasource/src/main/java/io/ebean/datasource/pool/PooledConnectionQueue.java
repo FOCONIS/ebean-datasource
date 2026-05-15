@@ -50,6 +50,7 @@ final class PooledConnectionQueue {
   private int hitCount;
   private long totalAcquireNanos;
   private long maxAcquireNanos;
+  private long totalWaitNanos;
 
   /**
    * The high water mark for the queue size.
@@ -78,7 +79,7 @@ final class PooledConnectionQueue {
 
   private PoolStatus createStatus() {
     return new Status(minSize, maxSize, buffer.freeSize(), buffer.busySize(), waitingThreads, highWaterMark,
-      waitCount, hitCount, totalAcquireNanos, maxAcquireNanos);
+      waitCount, hitCount, totalAcquireNanos, maxAcquireNanos, totalWaitNanos);
   }
 
   @Override
@@ -101,6 +102,7 @@ final class PooledConnectionQueue {
         waitCount = 0;
         maxAcquireNanos = 0;
         totalAcquireNanos = 0;
+        totalWaitNanos = 0;
       }
       return s;
     } finally {
@@ -119,16 +121,13 @@ final class PooledConnectionQueue {
     return buffer.freeSize() + buffer.busySize();
   }
 
-  void ensureMinimumConnections() throws SQLException {
+  void createConnections(int numberToAdd) throws SQLException {
     lock.lock();
     try {
-      int add = minSize - totalConnections();
-      if (add > 0) {
-        for (int i = 0; i < add; i++) {
-          buffer.addFree(pool.createConnectionForQueue(connectionId++));
-        }
-        notEmpty.signal();
+      for (int i = 0; i < numberToAdd; i++) {
+        buffer.addFree(pool.createConnectionForQueue(connectionId++));
       }
+      notEmpty.signal();
     } finally {
       lock.unlock();
     }
@@ -153,6 +152,7 @@ final class PooledConnectionQueue {
     } finally {
       lock.unlock();
     }
+    // close connection outside lock
     if (closeConnection) {
       c.closeConnectionFully(false);
     }
@@ -198,20 +198,6 @@ final class PooledConnectionQueue {
     return pool.invalidConnection(c);
   }
 
-
-  private PooledConnection createConnection() throws SQLException {
-    if (totalConnections() < maxSize) {
-      // grow the connection pool
-      PooledConnection c = pool.createConnectionForQueue(connectionId++);
-      int busySize = registerBusyConnection(c);
-      if (Log.isLoggable(DEBUG)) {
-        Log.debug("DataSource [{0}] grow; id[{1}] busy[{2}] max[{3}]", name, c.name(), busySize, maxSize);
-      }
-      return c;
-    } else {
-      return null;
-    }
-  }
 
   private boolean stale(PooledConnection c) {
     return c.lastUsedTime() < System.currentTimeMillis() - validateStaleMillis;
@@ -269,12 +255,27 @@ final class PooledConnectionQueue {
         return _obtainConnectionWaitLoop(null);
       } finally {
         waitingThreads--;
+        totalWaitNanos += (System.nanoTime() - start);
       }
     } finally {
       final var elapsed = System.nanoTime() - start;
       totalAcquireNanos += elapsed;
       maxAcquireNanos = Math.max(maxAcquireNanos, elapsed);
       lock.unlock();
+    }
+  }
+
+  private PooledConnection createConnection() throws SQLException {
+    if (totalConnections() < maxSize) {
+      // grow the connection pool
+      PooledConnection c = pool.createConnectionForQueue(connectionId++);
+      int busySize = registerBusyConnection(c);
+      if (Log.isLoggable(DEBUG)) {
+        Log.debug("DataSource [{0}] grow; id[{1}] busy[{2}] max[{3}]", name, c.name(), busySize, maxSize);
+      }
+      return c;
+    } else {
+      return null;
     }
   }
 
@@ -365,11 +366,19 @@ final class PooledConnectionQueue {
   }
 
   void trim(long maxInactiveMillis, long maxAgeMillis) {
+    // do not perform trimInactiveConnections in lock
     if (trimInactiveConnections(maxInactiveMillis, maxAgeMillis)) {
+      lock.lock();
       try {
-        ensureMinimumConnections();
+        // ensure there are the min connections
+        int add = minSize - totalConnections();
+        if (add > 0) {
+          createConnections(add);
+        }
       } catch (SQLException e) {
         Log.error("Error trying to ensure minimum connections", e);
+      } finally {
+        lock.unlock();
       }
     }
   }
