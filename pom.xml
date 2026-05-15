@@ -10,12 +10,12 @@
   <groupId>io.ebean</groupId>
   <artifactId>ebean-datasource-parent</artifactId>
   <name>ebean-datasource-parent</name>
-  <version>10.4-FOC1</version>
+  <version>10.4-FOC2-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <scm>
     <developerConnection>scm:git:git@github.com:FOCONIS/ebean-datasource.git</developerConnection>
-    <tag>ebean-datasource-parent-10.4-FOC1</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <modules>
