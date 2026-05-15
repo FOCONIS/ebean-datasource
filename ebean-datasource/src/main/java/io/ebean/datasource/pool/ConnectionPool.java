@@ -653,13 +653,21 @@ final class ConnectionPool implements DataSourcePool {
    */
   private PooledConnection getPooledConnection(Object affinitiyId) throws SQLException {
     PooledConnection c = queue.obtainConnection(affinitiyId);
-    if (captureStackTrace) {
-      c.setStackTrace(Thread.currentThread().getStackTrace());
+    boolean success = false;
+    try {
+      if (captureStackTrace) {
+        c.setStackTrace(Thread.currentThread().getStackTrace());
+      }
+      if (poolListener != null) {
+        poolListener.onAfterBorrowConnection(this, c);
+      }
+      success = true;
+      return c;
+    } finally {
+      if (!success) {
+        c.close();
+      }
     }
-    if (poolListener != null) {
-      poolListener.onAfterBorrowConnection(this, c);
-    }
-    return c;
   }
 
   /**
