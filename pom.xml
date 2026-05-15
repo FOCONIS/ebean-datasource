@@ -10,12 +10,12 @@
   <groupId>io.ebean</groupId>
   <artifactId>ebean-datasource-parent</artifactId>
   <name>ebean-datasource-parent</name>
-  <version>10.4-FOC1-SNAPSHOT</version>
+  <version>10.4-FOC1</version>
   <packaging>pom</packaging>
 
   <scm>
     <developerConnection>scm:git:git@github.com:FOCONIS/ebean-datasource.git</developerConnection>
-    <tag>HEAD</tag>
+    <tag>ebean-datasource-parent-10.4-FOC1</tag>
   </scm>
 
   <modules>
@@ -58,7 +58,7 @@
     <profile>
       <id>default</id>
       <activation>
-        <activeByDefault/>
+        <activeByDefault />
       </activation>
       <modules>
         <module>blackbox-tests</module>
