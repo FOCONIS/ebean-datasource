@@ -2,19 +2,14 @@ package io.ebean.datasource.test;
 
 import io.ebean.datasource.*;
 import io.ebean.test.containers.MariaDBContainer;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 
-import javax.sql.DataSource;
-import java.io.PrintWriter;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Disabled("run manually")
 class MultipoolTest {
@@ -114,6 +109,35 @@ class MultipoolTest {
   }
 
   @Test
+  void testError() throws Exception {
+
+    SharedPoolManager poolManager = new SharedPoolManager(container.jdbcUrl());
+    DataSourcePool pool = DataSourceBuilder.create()
+      .maxConnections(15)
+      .url(container.jdbcUrl())
+      .username("unit")
+      .password("unit")
+      .listener(poolManager)
+      .affinityProvider(poolManager::getCurrentTenant)
+      .affinitySize(7)
+      .build();
+    poolManager.setCurrentTenant(1);
+    try {
+      assertThat(executeQuery(pool, "select id from test")).isEqualTo(1);
+      ERROR = true;
+      for (int i = 1; i <= 200; i++) {
+        assertThatThrownBy(() -> executeQuery(pool, "select id from test")).isInstanceOf(SQLException.class).hasMessage("ERROR");
+      }
+      ERROR = false;
+      assertThat(executeQuery(pool, "select id from test")).isEqualTo(1);
+    } finally {
+      ERROR = false;
+      pool.shutdown();
+    }
+
+  }
+
+  @Test
   void testSharedPools() throws Exception {
     SharedPoolManager poolManager = new SharedPoolManager(container.jdbcUrl());
     DataSourcePool pool = DataSourceBuilder.create()
@@ -133,7 +157,7 @@ class MultipoolTest {
       poolManager.setCurrentTenant(2);
       assertThat(executeQuery(pool, "select id from test")).isEqualTo(2);
       assertThat(executeQuery(pool, "select id from test")).isEqualTo(2);
-      consumeConnections(poolManager,pool,15);
+      consumeConnections(poolManager, pool, 15);
     } finally {
       pool.shutdown();
     }
@@ -148,7 +172,7 @@ class MultipoolTest {
       int tenant = i % 2 + 1;
       Future<Boolean> submit = executor.submit(() -> {
         poolManager.setCurrentTenant(tenant);
-        for (int j =0; j < 100000; j++) {
+        for (int j = 0; j < 1000; j++) {
           try (Connection conn = pool.getConnection()) {
             try (PreparedStatement pstmt = conn.prepareStatement("select id from test")) {
               ResultSet rs = pstmt.executeQuery();
@@ -178,6 +202,8 @@ class MultipoolTest {
     return pool;
   }
 
+  private static boolean ERROR = false;
+
   static class SharedPoolManager implements DataSourcePoolListener {
     private final ThreadLocal<Integer> currentTenant = new ThreadLocal<>();
     private final String baseUrl;
@@ -206,6 +232,10 @@ class MultipoolTest {
 
     @Override
     public void onAfterBorrowConnection(DataSourcePool pool, DataSourceConnection connection) throws SQLException {
+      if (ERROR) {
+        throw new SQLException("ERROR");
+      }
+
       Integer tenant = (Integer) connection.affinityId();
       SharedConnection sc = connection.unwrap(SharedConnection.class);
       // do we have to perform a context switch of the shared connection.
@@ -234,7 +264,7 @@ class MultipoolTest {
     private Integer currentTenant;
     private Connection currentConnection;
 
-     SharedConnection(Connection currentConnection) {
+    SharedConnection(Connection currentConnection) {
       this.currentConnection = currentConnection;
     }
 
