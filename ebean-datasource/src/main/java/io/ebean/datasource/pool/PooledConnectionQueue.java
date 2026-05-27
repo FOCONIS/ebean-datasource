@@ -246,6 +246,9 @@ final class PooledConnectionQueue {
 
   private PooledConnection _obtainConnection(Object affinitiyId) throws InterruptedException, SQLException {
     var start = System.nanoTime();
+    if (Thread.interrupted()) {
+      throw new InterruptedException();
+    }
     lock.lockInterruptibly();
     try {
       if (doingShutdown) {
