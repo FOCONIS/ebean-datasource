@@ -10,7 +10,7 @@
   <groupId>io.ebean</groupId>
   <artifactId>ebean-datasource-parent</artifactId>
   <name>ebean-datasource-parent</name>
-  <version>10.16</version>
+  <version>10.16-FOC1-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <scm>
@@ -22,6 +22,14 @@
     <module>ebean-datasource</module>
     <module>ebean-datasource-api</module>
   </modules>
+
+  <distributionManagement>
+    <repository>
+      <id>favf-sonatype-nexus-releases</id>
+      <name>Foconis Analytics Vilshofen Release Repository</name>
+      <url>https://artifacts.foconis.de/repository/favf-maven-releases/</url>
+    </repository>
+  </distributionManagement>
 
   <profiles>
     <profile>
