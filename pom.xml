@@ -32,6 +32,26 @@
     </repository>
   </distributionManagement>
 
+  <build>
+    <plugins>
+      <!-- plugin is enabled only for central deploy https://repo1.maven.org/maven2/org/avaje/java11-oss/5.2/java11-oss-5.2.pom -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
   <profiles>
     <profile>
       <id>central</id>
