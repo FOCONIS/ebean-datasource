@@ -21,6 +21,7 @@
   <modules>
     <module>ebean-datasource</module>
     <module>ebean-datasource-api</module>
+    <module>blackbox-tests</module>
   </modules>
 
   <distributionManagement>
