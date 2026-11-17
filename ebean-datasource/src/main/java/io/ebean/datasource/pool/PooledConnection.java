@@ -111,6 +111,7 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
   private boolean failoverToReadOnly;
   private boolean autoCommit;
   private boolean readOnly;
+  private boolean heartbeat;
   private int transactionIsolation;
   private int schemaState = SCHEMA_CATALOG_UNKNOWN;
   private int catalogState = SCHEMA_CATALOG_UNKNOWN;
@@ -993,6 +994,21 @@ final class PooledConnection extends ConnectionDelegator implements DataSourceCo
    */
   void setStackTrace(StackTraceElement[] stackTrace) {
     this.stackTrace = stackTrace;
+  }
+
+  /**
+   * Mark this connection as borrowed for internal heartbeat validation
+   * (rather than application use).
+   */
+  void setHeartbeat(boolean heartbeat) {
+    this.heartbeat = heartbeat;
+  }
+
+  /**
+   * Return true if this connection was borrowed for internal heartbeat validation.
+   */
+  boolean heartbeat() {
+    return heartbeat;
   }
 
   /**

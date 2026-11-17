@@ -231,8 +231,8 @@ final class PooledConnectionQueue {
     }
     if (c == null && buffer.isAffinitySupported()) {
       // TODO: This "stealing" stragegy could be optimized.
-      // we might build a heurestic, which one would be the best candidate
-      c = extractFromFreeList(ConnectionBuffer.GET_LAST);
+      // we might build a heuristic, which one would be the best candidate
+      c = extractFromFreeList(SpecialAffinityId.RECONFIGURE);
     }
     return c;
   }
@@ -265,13 +265,10 @@ final class PooledConnectionQueue {
     return c.lastUsedTime() < System.currentTimeMillis() - validateStaleMillis;
   }
 
-  PooledConnection obtainConnection(Object affinitiyId) throws SQLException {
+  PooledConnection obtainConnection(boolean heartbeat, Object affinitiyId) throws SQLException {
     try {
-      PooledConnection pc = _obtainConnection(affinitiyId);
+      PooledConnection pc = _obtainConnection(heartbeat, affinitiyId);
       pc.resetForUse();
-      if (affinitiyId != ConnectionBuffer.GET_FIRST && affinitiyId != ConnectionBuffer.GET_LAST) {
-        pc.setAffinityId(affinitiyId);
-      }
       return pc;
 
     } catch (InterruptedException e) {
@@ -292,7 +289,7 @@ final class PooledConnectionQueue {
     return busySize;
   }
 
-  private PooledConnection _obtainConnection(Object affinitiyId) throws InterruptedException, SQLException {
+  private PooledConnection _obtainConnection(boolean heartbeat, Object affinitiyId) throws InterruptedException, SQLException {
     var start = System.nanoTime();
     lock.lockInterruptibly();
     try {
@@ -300,7 +297,7 @@ final class PooledConnectionQueue {
         throw new SQLException("Trying to access the Connection Pool when it is shutting down");
       }
       // exclude heartbeat from application metrics
-      if (affinitiyId != ConnectionBuffer.HEARTBEAT) {
+      if (!heartbeat) {
         hitCount++;
       }
       // are other threads already waiting? (they get priority)
@@ -313,19 +310,19 @@ final class PooledConnectionQueue {
       try {
         // The pool is at maximum size. We are going to go into
         // a wait loop until connections are returned into the pool.
-        if (affinitiyId != ConnectionBuffer.HEARTBEAT) {
+        if (!heartbeat) {
           waitCount++;
         }
         waitingThreads++;
-        return _obtainConnectionWaitLoop(null);
+        return _obtainConnectionWaitLoop(affinitiyId);
       } finally {
         waitingThreads--;
-        if (affinitiyId != ConnectionBuffer.HEARTBEAT) {
+        if (!heartbeat) {
           totalWaitNanos += (System.nanoTime() - start);
         }
       }
     } finally {
-      if (affinitiyId != ConnectionBuffer.HEARTBEAT) {
+      if (!heartbeat) {
         final var elapsed = System.nanoTime() - start;
         totalAcquireNanos += elapsed;
         maxAcquireNanos = Math.max(maxAcquireNanos, elapsed);

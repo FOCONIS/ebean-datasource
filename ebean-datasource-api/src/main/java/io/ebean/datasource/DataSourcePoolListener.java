@@ -16,13 +16,6 @@ import java.sql.SQLException;
 public interface DataSourcePoolListener {
 
   /**
-   * allows interception in the init phase.
-   */
-  default Connection initConnection(DataSourcePool pool, Connection conn) throws SQLException {
-    return conn;
-  }
-
-  /**
    * Called after a connection has been retrieved from the connection pool
    */
   default void onAfterBorrowConnection(DataSourcePool pool, DataSourceConnection connection) throws SQLException {

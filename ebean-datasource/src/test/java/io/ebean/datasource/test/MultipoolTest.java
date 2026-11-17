@@ -119,6 +119,12 @@ class MultipoolTest {
       .password("unit")
       .listener(poolManager)
       .affinityProvider(poolManager::getCurrentTenant)
+      .connectionInitializer(new NewConnectionInitializer() {
+        @Override
+        public Connection postInitialize(Connection connection) {
+          return new SharedConnection(connection);
+        }
+      })
       .affinitySize(7)
       .build();
     poolManager.setCurrentTenant(1);
@@ -146,6 +152,12 @@ class MultipoolTest {
       .username("unit")
       .password("unit")
       .listener(poolManager)
+      .connectionInitializer(new NewConnectionInitializer() {
+        @Override
+        public Connection postInitialize(Connection connection) {
+          return new SharedConnection(connection);
+        }
+      })
       .affinityProvider(poolManager::getCurrentTenant)
       .affinitySize(7)
       .build();
@@ -225,10 +237,10 @@ class MultipoolTest {
       return contextSwitches;
     }
 
-    @Override
-    public Connection initConnection(DataSourcePool pool, Connection conn) {
-      return new SharedConnection(conn);
-    }
+ //   @Override
+ //   public Connection initConnection(DataSourcePool pool, Connection conn) {
+ //     return new SharedConnection(conn);
+ //   }
 
     @Override
     public void onAfterBorrowConnection(DataSourcePool pool, DataSourceConnection connection) throws SQLException {
