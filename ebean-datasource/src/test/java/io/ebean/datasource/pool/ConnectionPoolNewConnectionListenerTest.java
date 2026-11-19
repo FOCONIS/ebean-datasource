@@ -32,19 +32,21 @@ class ConnectionPoolNewConnectionListenerTest {
     config.setMaxConnections(5);
     config.connectionInitializer(new NewConnectionInitializer() {
       @Override
-      public void preInitialize(Connection connection) {
+      public Connection preInitialize(Connection connection) {
         synchronized (createdConnections) {
           createdConnections.put(connection, 1 + createdConnections.getOrDefault(connection, 0));
           createdConnections.notifyAll();
         }
+        return connection;
       }
 
       @Override
-      public void postInitialize(Connection connection) {
+      public Connection postInitialize(Connection connection) {
         synchronized (afterConnections) {
           afterConnections.put(connection, 1 + afterConnections.getOrDefault(connection, 0));
           afterConnections.notifyAll();
         }
+        return connection;
       }
     });
 

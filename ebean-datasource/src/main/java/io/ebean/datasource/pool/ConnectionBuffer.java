@@ -118,11 +118,6 @@ import java.util.List;
  */
 final class ConnectionBuffer {
 
-  // special key to return the oldest connection from freeList.
-  static final Object GET_LAST = new Object();
-  static final Object GET_FIRST = new Object();
-  static final Object HEARTBEAT = new Object();
-
   private final ConnectionList[] affinityLists;
   private final ConnectionList freeList = new ConnectionList();
   private final ConnectionList busyList = new ConnectionList();
@@ -226,11 +221,13 @@ final class ConnectionBuffer {
     } else if (affinityId == null) {
       // null affinity passed
       pc = affinityLists[hashSize].peekFirst();
-    } else if (affinityId == GET_FIRST || affinityId == HEARTBEAT) {
-      // explicitly first one was requested (for heartbeat)
+    } else if (affinityId == SpecialAffinityId.HEARTBEAT) {
+      // a heartbeat connection was requested (technically, take any connection)
       pc = freeList.peekFirst();
-    } else if (affinityId == GET_LAST) {
-      // explicitly last one was requested (for changing affinityId)
+    } else if (affinityId == SpecialAffinityId.RECONFIGURE) {
+      // the connection pool is full and the first request for a connection
+      // with affinity-id failed. So we hand out the last (=oldest) connection
+      // in freeList, so that the caller can reconfigure that connection
       pc = freeList.peekLast();
     } else {
       // we have an affinity id request
