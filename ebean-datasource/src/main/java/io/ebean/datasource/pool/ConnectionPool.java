@@ -1,11 +1,25 @@
 package io.ebean.datasource.pool;
 
-import io.ebean.datasource.*;
+import io.ebean.datasource.ConnectionPoolExhaustedException;
+import io.ebean.datasource.DataSourceAlert;
+import io.ebean.datasource.DataSourceConfig;
+import io.ebean.datasource.DataSourceConnection;
+import io.ebean.datasource.DataSourceInitialiseException;
+import io.ebean.datasource.DataSourcePool;
+import io.ebean.datasource.DataSourcePoolListener;
+import io.ebean.datasource.InitDatabase;
+import io.ebean.datasource.NewConnectionInitializer;
+import io.ebean.datasource.PoolStatus;
 
 import javax.sql.DataSource;
 import java.io.PrintWriter;
-import java.sql.*;
-import java.util.*;
+import java.sql.Connection;
+import java.sql.SQLClientInfoException;
+import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
+import java.sql.Statement;
+import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -704,22 +718,22 @@ final class ConnectionPool implements DataSourcePool {
    * This will grow the pool if all the current connections are busy. This
    * will go into a wait if the pool has hit its maximum size.
    */
-  private PooledConnection getPooledConnection(Object affinitiyId) throws SQLException {
-    return getPooledConnection(false, affinitiyId);
+  private PooledConnection getPooledConnection(Object affinityId) throws SQLException {
+    return getPooledConnection(false, affinityId);
   }
 
   private PooledConnection getHeartbeatConnection() throws SQLException {
     return getPooledConnection(true, SpecialAffinityId.HEARTBEAT);
   }
 
-  private PooledConnection getPooledConnection(boolean heartbeat, Object affinitiyId) throws SQLException {
-    PooledConnection c = queue.obtainConnection(heartbeat, affinitiyId);
+  private PooledConnection getPooledConnection(boolean heartbeat, Object affinityId) throws SQLException {
+    PooledConnection c = queue.obtainConnection(heartbeat, affinityId);
     c.setHeartbeat(heartbeat);
     if (heartbeat) {
       // not application use so skip poolListener etc
       return c;
     }
-    c.setAffinityId(affinitiyId);
+    c.setAffinityId(affinityId);
     try {
       if (captureStackTrace) {
         c.setStackTrace(Thread.currentThread().getStackTrace());
