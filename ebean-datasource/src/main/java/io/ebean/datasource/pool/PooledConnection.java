@@ -301,8 +301,8 @@ final class PooledConnection extends ConnectionDelegator {
       for (ExtendedPreparedStatement ps : pstmtCache.values()) {
         ps.closeDestroy();
       }
-
     } finally {
+      pstmtCache.clear();
       lock.unlock();
     }
   }
