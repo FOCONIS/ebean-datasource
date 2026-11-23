@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Builder for DataSourcePool.
@@ -683,6 +684,26 @@ public interface DataSourceBuilder {
   DataSourceBuilder addProperty(String key, int value);
 
   /**
+   * sets the affinity-size (internal hashmap of distinct affinity keys). Should be a prime number. Default: 257
+   */
+  DataSourceBuilder affinitySize(int affinitySize);
+
+  /**
+   * Returns the affinity size.
+   */
+  int getAffinitySize();
+
+  /**
+   * Sets the affinity provider. e.g. Thread::currentThread.
+   */
+  DataSourceBuilder affinityProvider(Supplier<Object> affinityProvider);
+
+  /**
+   * Returns the affinity provider.
+   */
+  Supplier<Object> getAffinityProvider();
+
+  /**
    * Set the database owner username (used to create connection for use with InitDatabase).
    */
   default DataSourceBuilder ownerUsername(String ownerUsername) {
@@ -914,6 +935,11 @@ public interface DataSourceBuilder {
      * Return the driver instance to use.
      */
     Driver driver();
+
+    /**
+     * Returns the name of the pool.
+     */
+    String name();
 
     /**
      * Return the driver class to use (if an instance is not provided).

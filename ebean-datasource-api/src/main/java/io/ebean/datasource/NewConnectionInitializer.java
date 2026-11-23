@@ -11,16 +11,20 @@ public interface NewConnectionInitializer {
    * Called after a connection has been created, before any initialization.
    *
    * @param connection the created connection
+   * @return the connection or a wrapper
    */
-  default void preInitialize(Connection connection) {
+  default Connection preInitialize(Connection connection) {
+    return connection;
   }
 
   /**
    * Called after a connection has been initialized (after onCreatedConnection) and all settings applied.
    *
    * @param connection the created connection
+   * @return the connection or a wrapper
    */
-  default void postInitialize(Connection connection) {
+  default Connection postInitialize(Connection connection) {
+    return connection;
   }
 
 }
