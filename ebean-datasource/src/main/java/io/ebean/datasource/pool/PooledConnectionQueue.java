@@ -387,9 +387,10 @@ final class PooledConnectionQueue {
 
       try {
         nanos = notEmpty.awaitNanos(nanos);
-        if (!freeList.isEmpty()) {
+        PooledConnection c = this.extractFromFreeList();
+        if (c != null) {
           // successfully waited
-          return extractFromFreeList();
+          return c;
         }
       } catch (InterruptedException ie) {
         notEmpty.signal(); // propagate to non-interrupted thread
