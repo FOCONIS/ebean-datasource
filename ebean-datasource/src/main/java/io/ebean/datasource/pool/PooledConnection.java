@@ -1,5 +1,7 @@
 package io.ebean.datasource.pool;
 
+import io.ebean.datasource.DataSourceConnection;
+
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.Map;
@@ -18,7 +20,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * It has caching of Statements and PreparedStatements. Remembers the last
  * statement that was executed. Keeps statistics on how long it is in use.
  */
-final class PooledConnection extends ConnectionDelegator {
+final class PooledConnection extends ConnectionDelegator implements DataSourceConnection {
 
   private static final String IDLE_CONNECTION_ACCESSED_ERROR = "Pooled Connection has been accessed whilst idle in the pool, via method: ";
 
@@ -134,10 +136,12 @@ final class PooledConnection extends ConnectionDelegator {
   private String createdByMethod;
   private StackTraceElement[] stackTrace;
   private final int maxStackTrace;
-  /**
-   * Slot position in the BusyConnectionBuffer.
-   */
-  private int slotId;
+
+  // node in busyFree or affinity list
+  private final ConnectionList.Node busyFree = new ConnectionList.Node(this);
+  private final ConnectionList.Node affinity = new ConnectionList.Node(this);
+
+  private Object affinityId;
 
 
   /**
@@ -186,17 +190,34 @@ final class PooledConnection extends ConnectionDelegator {
   }
 
   /**
-   * Return the slot position in the busy buffer.
+   * Return the node in the busy list. If this is empty, the connection is free
    */
-  int slotId() {
-    return slotId;
+  ConnectionList.Node busyFree() {
+    return busyFree;
+  }
+
+  ConnectionList.Node affinity() {
+    return affinity;
   }
 
   /**
-   * Set the slot position in the busy buffer.
+   * Unlinks the pooledConnection from the busyFree and affinity-list.
    */
-  void setSlotId(int slotId) {
-    this.slotId = slotId;
+  void unlink() {
+    busyFree.unlink();
+    affinity.unlink();
+  }
+
+  /**
+   * Return the affinity-id (only for busy connections!)
+   */
+  @Override
+  public Object affinityId() {
+    return affinityId;
+  }
+
+  void setAffinityId(Object affinityId) {
+    this.affinityId = affinityId;
   }
 
   /**
@@ -262,13 +283,7 @@ final class PooledConnection extends ConnectionDelegator {
           Log.error("Error checking if connection [" + name + "] is closed", ex);
         }
       }
-      try {
-        clearPreparedStatementCache();
-      } catch (SQLException ex) {
-        if (logErrors) {
-          Log.warn("Error when closing connection Statements", ex);
-        }
-      }
+      clearPreparedStatementCache();
       try {
         // DB2 (and some other DBMS) may have uncommitted changes and do not allow close
         // so try to do a rollback.
@@ -295,14 +310,18 @@ final class PooledConnection extends ConnectionDelegator {
     }
   }
 
-  void clearPreparedStatementCache() throws SQLException {
+  public void clearPreparedStatementCache() {
     lock.lock();
     try {
       for (ExtendedPreparedStatement ps : pstmtCache.values()) {
-        ps.closeDestroy();
+        try {
+          ps.closeDestroy();
+        } catch (SQLException ex) {
+          Log.warn("Error when closing connection Statements", ex);
+        }
       }
-
     } finally {
+      pstmtCache.clear();
       lock.unlock();
     }
   }

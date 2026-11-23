@@ -1,11 +1,25 @@
 package io.ebean.datasource.pool;
 
-import io.ebean.datasource.*;
+import io.ebean.datasource.ConnectionPoolExhaustedException;
+import io.ebean.datasource.DataSourceAlert;
+import io.ebean.datasource.DataSourceConfig;
+import io.ebean.datasource.DataSourceConnection;
+import io.ebean.datasource.DataSourceInitialiseException;
+import io.ebean.datasource.DataSourcePool;
+import io.ebean.datasource.DataSourcePoolListener;
+import io.ebean.datasource.InitDatabase;
+import io.ebean.datasource.NewConnectionInitializer;
+import io.ebean.datasource.PoolStatus;
 
 import javax.sql.DataSource;
 import java.io.PrintWriter;
-import java.sql.*;
-import java.util.*;
+import java.sql.Connection;
+import java.sql.SQLClientInfoException;
+import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
+import java.sql.Statement;
+import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -14,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * A robust DataSource implementation.
@@ -76,6 +91,8 @@ final class ConnectionPool implements DataSourcePool {
   private final String applicationName;
   private final DataSource source;
   private final boolean validateOnHeartbeat;
+  private final int affinitySize;
+  private final Supplier<Object> affinityProvider;
   private long nextTrimTime;
 
   /**
@@ -142,6 +159,12 @@ final class ConnectionPool implements DataSourcePool {
     this.validateStaleMillis = params.validateStaleMillis();
     this.applicationName = params.getApplicationName();
     this.clientInfo = params.getClientInfo();
+    if (params.getAffinityProvider() == null) {
+      this.affinityProvider = () -> null; // dummy
+    } else {
+      this.affinityProvider = params.getAffinityProvider();
+    }
+    this.affinitySize = params.getAffinitySize();
     this.queue = new PooledConnectionQueue(this, nanoTime);
     this.schema = params.getSchema();
     this.catalog = params.catalog();
@@ -271,7 +294,7 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public boolean isWrapperFor(Class<?> arg0) {
-    return false;
+    return DataSourcePool.class.isAssignableFrom(arg0);
   }
 
   /**
@@ -279,7 +302,10 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public <T> T unwrap(Class<T> arg0) throws SQLException {
-    throw new SQLException("Not Implemented");
+    if (DataSourcePool.class.isAssignableFrom(arg0)) {
+      return (T) this;
+    }
+    throw new SQLException("Not a wrapper for " + arg0.getName());
   }
 
   /**
@@ -409,7 +435,7 @@ final class ConnectionPool implements DataSourcePool {
     try {
       // Get a connection from the pool and test it (heartbeat obtain is
       // excluded from the pool usage metrics - it is not application use)
-      conn = getPooledConnection(true);
+      conn = getHeartbeatConnection();
       heartbeatPoolExhaustedCount = 0;
       if (testConnection(conn)) {
         notifyDataSourceIsUp();
@@ -488,7 +514,7 @@ final class ConnectionPool implements DataSourcePool {
     if (connectionInitializer != null) {
       connectionInitializer.postInitialize(conn);
     }
-    return conn;
+  return conn;
   }
 
   private Connection createConnection() throws SQLException {
@@ -618,7 +644,7 @@ final class ConnectionPool implements DataSourcePool {
    */
   private void returnTheConnection(PooledConnection pooledConnection, boolean forceClose) {
     if (poolListener != null && !forceClose && !pooledConnection.heartbeat()) {
-      poolListener.onBeforeReturnConnection(pooledConnection);
+      poolListener.onBeforeReturnConnection(this, pooledConnection);
     }
     queue.returnPooledConnection(pooledConnection, forceClose);
   }
@@ -675,7 +701,15 @@ final class ConnectionPool implements DataSourcePool {
    */
   @Override
   public Connection getConnection() throws SQLException {
-    return getPooledConnection();
+    return getPooledConnection(affinityProvider.get());
+  }
+
+  /**
+   * Return a pooled connection with given affinity id.
+   */
+  @Override
+  public DataSourceConnection getConnection(Object affinityId) throws SQLException {
+    return getPooledConnection(affinityId);
   }
 
   /**
@@ -684,24 +718,38 @@ final class ConnectionPool implements DataSourcePool {
    * This will grow the pool if all the current connections are busy. This
    * will go into a wait if the pool has hit its maximum size.
    */
-  private PooledConnection getPooledConnection() throws SQLException {
-    return getPooledConnection(false);
+  private PooledConnection getPooledConnection(Object affinityId) throws SQLException {
+    return getPooledConnection(false, affinityId);
   }
 
-  private PooledConnection getPooledConnection(boolean heartbeat) throws SQLException {
-    PooledConnection c = queue.obtainConnection(heartbeat);
+  private PooledConnection getHeartbeatConnection() throws SQLException {
+    return getPooledConnection(true, SpecialAffinityId.HEARTBEAT);
+  }
+
+  private PooledConnection getPooledConnection(boolean heartbeat, Object affinityId) throws SQLException {
+    PooledConnection c = queue.obtainConnection(heartbeat, affinityId);
     c.setHeartbeat(heartbeat);
     if (heartbeat) {
       // not application use so skip poolListener etc
       return c;
     }
-    if (captureStackTrace) {
-      c.setStackTrace(Thread.currentThread().getStackTrace());
+    c.setAffinityId(affinityId);
+    try {
+      if (captureStackTrace) {
+        c.setStackTrace(Thread.currentThread().getStackTrace());
+      }
+      if (poolListener != null) {
+        poolListener.onAfterBorrowConnection(this, c);
+      }
+      return c;
+    } catch (Throwable e) {
+      try {
+        c.close();
+      } catch (Throwable e2) {
+        e.addSuppressed(e2);
+      }
+      throw e;
     }
-    if (poolListener != null) {
-      poolListener.onAfterBorrowConnection(c);
-    }
-    return c;
   }
 
   @Override
@@ -870,6 +918,10 @@ final class ConnectionPool implements DataSourcePool {
     return pstmtCacheSize;
   }
 
+  int affinitySize() {
+    return affinitySize;
+  }
+
   /**
    * Not implemented and shouldn't be used.
    */
@@ -900,6 +952,17 @@ final class ConnectionPool implements DataSourcePool {
   @Override
   public void setLogWriter(PrintWriter writer) throws SQLException {
     throw new SQLException("Method not supported");
+  }
+
+  @Override
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+    sb.append("name[").append(name).append(']');
+    if (poolListener != null) {
+      sb.append(" poolListener[").append(poolListener).append(']');
+    }
+    sb.append(' ').append(queue);
+    return sb.toString();
   }
 
   @Override
@@ -1014,5 +1077,4 @@ final class ConnectionPool implements DataSourcePool {
       return meanAcquireNanos;
     }
   }
-
 }
