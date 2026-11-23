@@ -473,7 +473,7 @@ final class ConnectionPool implements DataSourcePool {
    */
   private Connection initConnection(Connection conn) throws SQLException {
     if (connectionInitializer != null) {
-      conn = connectionInitializer.preInitialize(conn);
+      connectionInitializer.preInitialize(conn);
     }
     // isolation level is set globally for all connections (at least for H2) and
     // you will need admin rights - so we do not change it, if it already matches.
@@ -512,7 +512,7 @@ final class ConnectionPool implements DataSourcePool {
     }
     conn.setAutoCommit(autoCommit);
     if (connectionInitializer != null) {
-      conn = connectionInitializer.postInitialize(conn);
+      connectionInitializer.postInitialize(conn);
     }
   return conn;
   }

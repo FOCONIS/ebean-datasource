@@ -4,9 +4,12 @@ import io.ebean.datasource.*;
 import io.ebean.test.containers.MariaDBContainer;
 import org.junit.jupiter.api.*;
 
+import javax.sql.DataSource;
+import java.io.PrintWriter;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -114,17 +117,9 @@ class MultipoolTest {
     SharedPoolManager poolManager = new SharedPoolManager(container.jdbcUrl());
     DataSourcePool pool = DataSourceBuilder.create()
       .maxConnections(15)
-      .url(container.jdbcUrl())
-      .username("unit")
-      .password("unit")
+      .dataSource(new SharedConnectionDataSource(container.jdbcUrl(), "unit", "unit"))
       .listener(poolManager)
       .affinityProvider(poolManager::getCurrentTenant)
-      .connectionInitializer(new NewConnectionInitializer() {
-        @Override
-        public Connection postInitialize(Connection connection) {
-          return new SharedConnection(connection);
-        }
-      })
       .affinitySize(7)
       .build();
     poolManager.setCurrentTenant(1);
@@ -148,16 +143,8 @@ class MultipoolTest {
     SharedPoolManager poolManager = new SharedPoolManager(container.jdbcUrl());
     DataSourcePool pool = DataSourceBuilder.create()
       .maxConnections(15)
-      .url(container.jdbcUrl())
-      .username("unit")
-      .password("unit")
+      .dataSource(new SharedConnectionDataSource(container.jdbcUrl(), "unit", "unit"))
       .listener(poolManager)
-      .connectionInitializer(new NewConnectionInitializer() {
-        @Override
-        public Connection postInitialize(Connection connection) {
-          return new SharedConnection(connection);
-        }
-      })
       .affinityProvider(poolManager::getCurrentTenant)
       .affinitySize(7)
       .build();
@@ -269,6 +256,66 @@ class MultipoolTest {
     }
   }
 
+  /**
+   * Very simple datasource delivering sharedConnections.
+   */
+  static class SharedConnectionDataSource implements DataSource {
+
+    private String url;
+    private String username;
+    private String password;
+
+    public SharedConnectionDataSource(String url, String username, String password) {
+      this.url = url;
+      this.username = username;
+      this.password = password;
+    }
+
+    @Override
+    public Connection getConnection() throws SQLException {
+      return new SharedConnection(DriverManager.getConnection(url, username, password));
+    }
+
+    @Override
+    public Connection getConnection(String username, String password) throws SQLException {
+      return new SharedConnection(DriverManager.getConnection(url, username, password));
+    }
+
+    @Override
+    public PrintWriter getLogWriter() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setLogWriter(PrintWriter out) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setLoginTimeout(int seconds) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int getLoginTimeout() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Logger getParentLogger() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public <T> T unwrap(Class<T> iface) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isWrapperFor(Class<?> iface) {
+      throw new UnsupportedOperationException();
+    }
+  }
   /**
    * delegate class.
    */
