@@ -124,29 +124,12 @@
         <executions>
           <!-- Compile for base version Java 11 -->
           <execution>
-            <id>base</id>
+            <id>default-compile</id>
             <goals>
               <goal>compile</goal>
             </goals>
             <configuration>
               <release>11</release>
-              <compileSourceRoots>
-                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
-              </compileSourceRoots>
-            </configuration>
-          </execution>
-          <!-- Compile for Java 21 -->
-          <execution>
-            <id>java21</id>
-            <goals>
-              <goal>compile</goal>
-            </goals>
-            <configuration>
-              <release>21</release>
-              <compileSourceRoots>
-                <compileSourceRoot>${project.basedir}/src/main/java21</compileSourceRoot>
-              </compileSourceRoots>
-              <outputDirectory>${project.build.outputDirectory}/META-INF/versions/21</outputDirectory>
             </configuration>
           </execution>
         </executions>
@@ -154,5 +137,42 @@
 
     </plugins>
   </build>
+
+  <profiles>
+    <!-- IntelliJ's native builder cannot isolate the additional compiler output.
+         Keep Java 21 overrides in Maven builds and use the Java 11 base in the IDE. -->
+    <profile>
+      <id>java21</id>
+      <activation>
+        <property>
+          <name>!idea.version</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <executions>
+              <!-- Compile for Java 21 -->
+              <execution>
+                <id>java21</id>
+                <goals>
+                  <goal>compile</goal>
+                </goals>
+                <configuration>
+                  <release>21</release>
+                  <multiReleaseOutput>true</multiReleaseOutput>
+                  <compileSourceRoots>
+                    <compileSourceRoot>${project.basedir}/src/main/java21</compileSourceRoot>
+                  </compileSourceRoots>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
 </project>
